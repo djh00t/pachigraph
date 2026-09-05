@@ -1,0 +1,382 @@
+{
+  "react": {
+    "advisory_sources": [],
+    "candidates_considered": 2934,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "react",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:31.732719Z",
+      "fetched_at": "2026-09-05T04:02:31.732719Z",
+      "metadata_url": "https://registry.npmjs.org/react",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.6",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "react-dom": {
+    "advisory_sources": [],
+    "candidates_considered": 2889,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "react-dom",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:31.732990Z",
+      "fetched_at": "2026-09-05T04:02:31.732990Z",
+      "metadata_url": "https://registry.npmjs.org/react-dom",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.6",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "react-server-dom-webpack": {
+    "advisory_sources": [],
+    "candidates_considered": 2230,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "react-server-dom-webpack",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:31.732971Z",
+      "fetched_at": "2026-09-05T04:02:31.732971Z",
+      "metadata_url": "https://registry.npmjs.org/react-server-dom-webpack",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.6",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "vinext": {
+    "advisory_sources": [],
+    "candidates_considered": 77,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "vinext",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:31.732708Z",
+      "fetched_at": "2026-09-05T04:02:31.732708Z",
+      "metadata_url": "https://registry.npmjs.org/vinext",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "1.0.0-beta.5",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "drizzle-orm": {
+    "advisory_sources": [],
+    "candidates_considered": 562,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "drizzle-orm",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:31.732691Z",
+      "fetched_at": "2026-09-05T04:02:31.732691Z",
+      "metadata_url": "https://registry.npmjs.org/drizzle-orm",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "0.45.2",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@modelcontextprotocol/sdk": {
+    "advisory_sources": [],
+    "candidates_considered": 79,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@modelcontextprotocol/sdk",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T03:56:42.156321Z",
+      "fetched_at": "2026-09-05T03:56:42.156321Z",
+      "metadata_url": "https://registry.npmjs.org/%40modelcontextprotocol%2Fsdk",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "1.30.0",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "zod": {
+    "advisory_sources": [],
+    "candidates_considered": 1005,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "zod",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.448685Z",
+      "fetched_at": "2026-09-05T04:02:32.448685Z",
+      "metadata_url": "https://registry.npmjs.org/zod",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "4.5.0-canary.20260820T143849",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@cloudflare/vite-plugin": {
+    "advisory_sources": [],
+    "candidates_considered": 851,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@cloudflare/vite-plugin",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.448366Z",
+      "fetched_at": "2026-09-05T04:02:32.448366Z",
+      "metadata_url": "https://registry.npmjs.org/%40cloudflare%2Fvite-plugin",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "1.37.1",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@cloudflare/workers-types": {
+    "advisory_sources": [],
+    "candidates_considered": 518,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@cloudflare/workers-types",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.491042Z",
+      "fetched_at": "2026-09-05T04:02:32.491042Z",
+      "metadata_url": "https://registry.npmjs.org/%40cloudflare%2Fworkers-types",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "4.20260515.1",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@openai/sites-vite-plugin": {
+    "advisory_sources": [],
+    "candidates_considered": 2,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@openai/sites-vite-plugin",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.523301Z",
+      "fetched_at": "2026-09-05T04:02:32.523301Z",
+      "metadata_url": "https://registry.npmjs.org/%40openai%2Fsites-vite-plugin",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "0.2.0",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@types/node": {
+    "advisory_sources": [],
+    "candidates_considered": 2359,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@types/node",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.963344Z",
+      "fetched_at": "2026-09-05T04:02:32.963344Z",
+      "metadata_url": "https://registry.npmjs.org/%40types%2Fnode",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "22.19.19",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@types/react": {
+    "advisory_sources": [],
+    "candidates_considered": 706,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@types/react",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.963724Z",
+      "fetched_at": "2026-09-05T04:02:32.963724Z",
+      "metadata_url": "https://registry.npmjs.org/%40types%2Freact",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.14",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@types/react-dom": {
+    "advisory_sources": [],
+    "candidates_considered": 186,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@types/react-dom",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:32.963402Z",
+      "fetched_at": "2026-09-05T04:02:32.963402Z",
+      "metadata_url": "https://registry.npmjs.org/%40types%2Freact-dom",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.3",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "@vitejs/plugin-rsc": {
+    "advisory_sources": [],
+    "candidates_considered": 61,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@vitejs/plugin-rsc",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:33.352263Z",
+      "fetched_at": "2026-09-05T04:02:33.352263Z",
+      "metadata_url": "https://registry.npmjs.org/%40vitejs%2Fplugin-rsc",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "0.5.26",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "oxfmt": {
+    "advisory_sources": [],
+    "candidates_considered": 68,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "oxfmt",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:33.443065Z",
+      "fetched_at": "2026-09-05T04:02:33.443065Z",
+      "metadata_url": "https://registry.npmjs.org/oxfmt",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "0.61.0",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "oxlint": {
+    "advisory_sources": [],
+    "candidates_considered": 208,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "oxlint",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:33.530752Z",
+      "fetched_at": "2026-09-05T04:02:33.530752Z",
+      "metadata_url": "https://registry.npmjs.org/oxlint",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "1.76.0",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "typescript": {
+    "advisory_sources": [],
+    "candidates_considered": 3815,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "typescript",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:33.711344Z",
+      "fetched_at": "2026-09-05T04:02:33.711344Z",
+      "metadata_url": "https://registry.npmjs.org/typescript",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "5.9.3",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "vite": {
+    "advisory_sources": [],
+    "candidates_considered": 750,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "vite",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:33.848677Z",
+      "fetched_at": "2026-09-05T04:02:33.848677Z",
+      "metadata_url": "https://registry.npmjs.org/vite",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "8.0.13",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "wrangler": {
+    "advisory_sources": [],
+    "candidates_considered": 4930,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "wrangler",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:33.957971Z",
+      "fetched_at": "2026-09-05T04:02:33.957971Z",
+      "metadata_url": "https://registry.npmjs.org/wrangler",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "4.92.0",
+    "source": "npm",
+    "status": "recommended"
+  },
+  "drizzle-kit": {
+    "advisory_sources": [],
+    "candidates_considered": 504,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "drizzle-kit",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "miss",
+      "expires_at": "2026-09-06T04:02:34.251809Z",
+      "fetched_at": "2026-09-05T04:02:34.251809Z",
+      "metadata_url": "https://registry.npmjs.org/drizzle-kit",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "0.31.10",
+    "source": "npm",
+    "status": "recommended"
+  }
+}

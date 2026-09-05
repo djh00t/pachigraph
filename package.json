@@ -1,0 +1,41 @@
+{
+  "name": "pachigraph",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "wrangler dev --config dist/server/wrangler.json",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-server-dom-webpack": "19.2.8",
+    "vinext": "1.0.0-beta.8",
+    "drizzle-orm": "0.45.2",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.53.1",
+    "@cloudflare/workers-types": "5.20260820.1",
+    "@openai/sites-vite-plugin": "0.2.0",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-rsc": "0.5.34",
+    "oxfmt": "0.61.0",
+    "oxlint": "1.76.0",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "wrangler": "4.125.0",
+    "drizzle-kit": "0.31.10"
+  },
+  "type": "module"
+}

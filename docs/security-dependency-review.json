@@ -1,0 +1,116 @@
+[
+  {
+    "advisory_sources": [],
+    "candidates_considered": 2934,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "react",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T04:02:31.732719Z",
+      "fetched_at": "2026-09-05T04:02:31.732719Z",
+      "metadata_url": "https://registry.npmjs.org/react",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.8",
+    "source": "npm",
+    "status": "recommended"
+  },
+  {
+    "advisory_sources": [],
+    "candidates_considered": 2889,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "react-dom",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T04:02:31.732990Z",
+      "fetched_at": "2026-09-05T04:02:31.732990Z",
+      "metadata_url": "https://registry.npmjs.org/react-dom",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.8",
+    "source": "npm",
+    "status": "recommended"
+  },
+  {
+    "advisory_sources": [],
+    "candidates_considered": 2230,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "react-server-dom-webpack",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T04:02:31.732971Z",
+      "fetched_at": "2026-09-05T04:02:31.732971Z",
+      "metadata_url": "https://registry.npmjs.org/react-server-dom-webpack",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "19.2.8",
+    "source": "npm",
+    "status": "recommended"
+  },
+  {
+    "advisory_sources": [],
+    "candidates_considered": 851,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "@cloudflare/vite-plugin",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T04:02:32.448366Z",
+      "fetched_at": "2026-09-05T04:02:32.448366Z",
+      "metadata_url": "https://registry.npmjs.org/%40cloudflare%2Fvite-plugin",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "1.53.1",
+    "source": "npm",
+    "status": "recommended"
+  },
+  {
+    "advisory_sources": [],
+    "candidates_considered": 750,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "vite",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T04:02:33.848677Z",
+      "fetched_at": "2026-09-05T04:02:33.848677Z",
+      "metadata_url": "https://registry.npmjs.org/vite",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "8.2.2",
+    "source": "npm",
+    "status": "recommended"
+  },
+  {
+    "advisory_sources": [],
+    "candidates_considered": 4930,
+    "ecosystem": "javascript",
+    "minimum_release_age_hours": 336,
+    "package": "wrangler",
+    "policy": "standard",
+    "provenance": {
+      "cache_status": "hit",
+      "expires_at": "2026-09-06T04:02:33.957971Z",
+      "fetched_at": "2026-09-05T04:02:33.957971Z",
+      "metadata_url": "https://registry.npmjs.org/wrangler",
+      "source": "npm"
+    },
+    "reason": "Selected newest candidate that satisfies policy checks.",
+    "recommended_version": "4.125.0",
+    "source": "npm",
+    "status": "recommended"
+  }
+]

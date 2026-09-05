@@ -1,0 +1,19 @@
+{
+  "advisory_sources": [],
+  "candidates_considered": 77,
+  "ecosystem": "javascript",
+  "minimum_release_age_hours": 336,
+  "package": "vinext",
+  "policy": "standard",
+  "provenance": {
+    "cache_status": "hit",
+    "expires_at": "2026-09-06T04:02:31.732708Z",
+    "fetched_at": "2026-09-05T04:02:31.732708Z",
+    "metadata_url": "https://registry.npmjs.org/vinext",
+    "source": "npm"
+  },
+  "reason": "Selected newest candidate that satisfies policy checks.",
+  "recommended_version": "1.0.0-beta.8",
+  "source": "npm",
+  "status": "recommended"
+}

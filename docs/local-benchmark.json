@@ -1,0 +1,12 @@
+{
+  "kind": "synthetic local Workers sample, not production capacity proof",
+  "records": 300,
+  "source_bytes": 326290,
+  "text_bytes": 311290,
+  "d1_before_bytes": 49152,
+  "d1_after_bytes": 815104,
+  "d1_growth_bytes": 765952,
+  "p50_search_ms": 2.64,
+  "p95_search_ms": 3.42,
+  "queries": 20
+}

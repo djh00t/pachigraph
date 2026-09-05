@@ -1,8 +1,11 @@
 # Release workstreams
 
-Baseline: `744622126d1d59e661d4d38068acf57e2c3a4f3c`, privately deployed as Sites
-version 3. The original MVP plus the user's API-key decision is the acceptance
-contract. The website is accepted; the integrated workflow is not yet accepted.
+Deployed app baseline: `744622126d1d59e661d4d38068acf57e2c3a4f3c`, privately
+deployed as Sites version 3. Source batch `400e6da`, including collector commit
+`b6927d3` and plugin commit `989d1c4`, is pushed to `origin/main`; it does not
+change the app runtime, so no redeployment is required. This status snapshot is
+not claimed as part of `400e6da`. The website is accepted; the integrated
+workflow is not yet accepted.
 
 ## Ownership and dependency graph
 
@@ -13,7 +16,7 @@ contract. The website is accepted; the integrated workflow is not yet accepted.
 | Release evidence | Luna medium | README and acceptance record | Current facts, no stale blockers presented as current | Published version and recorded checks |
 | Auth, storage and UI review | Sol high | Read-only findings | Concrete release blockers with evidence and bounded fixes | Current application |
 | Live gateway qualification | Orchestrator | Native Sites state and reduced HTTP observations | Confirm whether application auth is reachable | Existing private deployment |
-| Integration and release | Orchestrator | Reviewed integrated changes | Relevant checks, final documentation review and published source | All changed streams reviewed |
+| Integration and release | Orchestrator | Published source batch `400e6da` | Relevant checks, final documentation review and published source | All changed streams reviewed |
 
 Workers use distinct staging directories. Only the Site owner integrates into the
 Site checkout, handles Git publication or calls Sites tools. Workers cannot
@@ -49,8 +52,8 @@ publish or create credentials. No new dependencies without Dependency Advisor.
 | State | Status |
 |---|---|
 | Independent stream execution | Complete |
-| Reviewed integration | Approved; final documentation repair under review |
-| Source publication | Pending final documentation review; no app redeployment required |
+| Reviewed integration | Complete |
+| Source publication | Complete at `400e6da`; no app redeployment required |
 | Live platform qualification | Blocked by Cloudflare Error 1010 pending owner action |
 | Representative sample | Pending |
 | Workflow acceptance | Pending |

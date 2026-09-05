@@ -21,11 +21,11 @@ state.
 | Collector implementation and secret scanning | 🟢 Integrated; 39 tests reviewed and approved | Bearer ingest contract; maintained Gitleaks | Run a representative sanitized sample | /root/collector_stream | Sol | medium |
 | Collector replay, append, backfill and resume behavior | 🟢 Local verified | Ingest idempotency and source prefix contract | Prove on the representative sample | /root/collector_stream | Sol | medium |
 | Portable agent plugin, manifests and CLI | 🟢 Integrated and approved | Bearer read contract; MCP client configuration | Prove client configuration against live keys | /root/plugin_stream | Sol | medium |
-| Integrated release source | 🟢 Local integration verified; awaiting source publication | Final documentation review | Publish the reviewed source; no app redeployment is required | /root/matrix_stream | Luna | medium |
-| Collector and plugin package review | 🟢 Approved | Local commits `b6927d3` and `989d1c4` (not pushed) | Preserve approval evidence for publication | /root/package_review | Sol | medium |
-| Release final review | 🟠 Code approved; documentation repair ready for review | Integrated source and review evidence | Verify the scoped documentation repair | /root/release_final_review | GPT-6 Astra | high |
-| Final documentation repair | 🟢 Repaired; scoped verification passed | Release final-review findings | Return the repair for final review | /root/final_docs_fix | Sol | medium |
-| Source publication | 🟡 Awaiting final documentation review | Approved integration and verified documentation repair | Publish the reviewed source without redeploying the app | /root | current session | not exposed |
+| Integrated release source | 🟢 Published at `400e6da` | Completed package and final reviews | Await Cloudflare owner action; no app redeployment is required | /root/matrix_stream | Luna | medium |
+| Collector and plugin package review | 🟢 Approved and published | Commits `b6927d3` and `989d1c4` pushed in `400e6da` | Preserve approval evidence | /root/package_review | Sol | medium |
+| Release final review | 🟢 Completed | Integrated source and corrected release evidence | Preserve final-review evidence | /root/release_final_review | GPT-6 Astra | high |
+| Final documentation repair | 🟢 Completed; scoped verification passed | Release final-review findings, including the residual dependency correction | Preserve this post-publication status snapshot | /root/final_docs_fix | Sol | medium |
+| Source publication | 🟢 Published at `400e6da` | Approved integration and completed final review | Await Cloudflare owner action; no app redeployment is required | /root | current session | not exposed |
 | Local checks and production build | 🟢 Local verified | Node, npm, Python and Gitleaks toolchain | Keep known upstream warnings documented | Orchestrator (current session) | current session | not exposed |
 | Live gateway observation | 🟠 Gateway blocked | Valid-format read key; Cloudflare/Sites ingress | Do not retry or change user agent; owner action is required | Orchestrator (current session) | current session | not exposed |
 | Live valid-key HTTP authentication | 🟠 Gateway blocked; app auth unverified | Valid deployed-format read-key file; gateway ingress | Preserve the GET `/api/search` 403 evidence; do not infer app-key failure | Orchestrator (current session) | current session | not exposed |
@@ -57,8 +57,9 @@ state.
 | PII redaction and shared-content search | ⏸️ Deferred | Explicit privacy/product scope | Do not infer from the MVP | unassigned | — | — |
 | AI processing and embeddings | ⏸️ Deferred | Explicit search-quality requirement | Keep the MVP text-search only | unassigned | — | — |
 
-Evidence anchors: source `744622126d1d59e661d4d38068acf57e2c3a4f3c` is committed
-and pushed. Private Sites version 3
+Evidence anchors: source batch `400e6da`, including collector commit `b6927d3`
+and plugin commit `989d1c4`, is pushed to `origin/main`. This status snapshot
+records that publication and is not claimed as part of `400e6da`. Private Sites version 3
 `appgprj_6a9b93afa6788191b7b0a59358a497ce~appgver_9f561efed35c8191823362705e01cdc2`
 deployment `appgdep_6a9c23e5798c8191bdeb9da1946daf78` succeeded at
 `2026-09-05T14:15:26Z`. Integrated evidence is 39 collector tests, 25 app tests
@@ -91,10 +92,11 @@ Planned
 ```
 
 Current position: `Scheduled operation` is not reached. The website is accepted;
-the v3 release is privately deployed, and today's collector and plugin fixes are
-approved and locally integrated. Final documentation review and source publication
-remain; the app runtime is unchanged, so no redeployment is required. Live gateway
-qualification is blocked on owner action, followed by sample verification and workflow acceptance. Any gate may
+the collector and plugin fixes passed review and were published in source batch
+`400e6da`. Reviewed integration and source publication have passed. The v3 app
+remains deployed at `744622126d1d59e661d4d38068acf57e2c3a4f3c`; the app runtime
+is unchanged, so no redeployment is required. Live gateway qualification is
+blocked on owner action, followed by sample verification and workflow acceptance. Any gate may
 instead end in `Deferred / rejected`, recording the reason and preventing bulk
 ingestion.
 

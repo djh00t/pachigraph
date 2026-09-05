@@ -37,6 +37,7 @@ unaccepted pending live key access and representative-sample proof.
 | Site storage, search, HTTP and MCP | Locally verified | 25 app tests and Workers API-key smoke |
 | Collector | Integrated and approved | 39 collector tests passed with Gitleaks |
 | Plugin | Integrated and approved | 5 plugin tests; Agent Plugins and Codex manifests |
+| Source batch | Published | Commit `400e6da` pushed to `origin/main`; includes collector `b6927d3` and plugin `989d1c4` |
 | API-key publication | Deployed; gateway qualification blocked | Version 3 deployment succeeded; Cloudflare owner action is required |
 | Live agent authentication | Gateway blocked; app auth unverified | Valid-format key reached live gateway: GET `/api/search` and POST `/mcp` returned 403; `/api/status` was Cloudflare Error 1010 with owner action required |
 | Representative sample | Pending | No personal content imported |
@@ -160,7 +161,7 @@ Server Components together at 19.2.8 and updates compatible Vinext/Cloudflare pe
 Runtime `npm audit --omit=dev` reported zero vulnerabilities on 2026-09-05. Full
 `npm audit` still reports four moderate findings in the Drizzle Kit development
 chain. No incompatible downgrade, release-candidate migration tool, or dependency
-policy override was used. Recheck advisories before publication.
+policy override was used. Recheck advisories when dependencies change.
 
 ## Repeat the local storage smoke measurement
 

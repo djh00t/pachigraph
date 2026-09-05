@@ -111,10 +111,11 @@ scheduling are not authorized before those gates pass.
 The integrated collector and plugin changes passed review: 39 collector tests and 5
 plugin tests passed. The app baseline has 25 tests; integrated `make check` passed
 all 69 tests, with Codex plugin validation and `git diff --check` also passing.
-These changes are locally integrated but are not yet claimed as part of the
-deployed v3 source. They do not change the app runtime, so v3 remains the current
-deployment and no redeployment is required. Source publication follows the final
-documentation review. Build checks pass with the
+Source batch `400e6da`, including collector commit `b6927d3` and plugin commit
+`989d1c4`, was pushed to `origin/main`. These changes do not change the app
+runtime, so v3 remains the current deployment and no redeployment is required.
+This status snapshot records that publication and is not claimed as part of
+`400e6da`. Build checks pass with the
 known upstream Node `punycode` and experimental SQLite warnings.
 - Collector sizing: 20 synthetic records needed 40 scanner processes and 3.170
   seconds (6.31 records/second). This is an initial-import throughput limitation;
@@ -154,7 +155,7 @@ trusted browser identity headers against production.
 |---|---|
 | Current website | User-accepted |
 | API-key generator and HTTP/MCP integration | Locally verified |
-| Collector and plugin integration | Integrated on 2026-09-06 |
+| Collector and plugin integration | Published in source batch `400e6da` on 2026-09-06 |
 | Published Bearer-key access | Gateway blocked; app-key outcome unproven; `/api/search` and `/mcp` returned 403 |
 | Representative personal sample | Pending |
 | Complete workflow acceptance | Pending |

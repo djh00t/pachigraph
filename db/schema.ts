@@ -7,6 +7,14 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
+export const apiKeys = sqliteTable('api_keys', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').notNull(),
+  digest: text('digest').notNull().unique(),
+  scope: text('scope').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+});
+
 export const threadTombstones = sqliteTable(
   'thread_tombstones',
   {

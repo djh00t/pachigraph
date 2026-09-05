@@ -30,6 +30,7 @@ async function HistoryPage({ params }: { params: Params }) {
   return (
     <main>
       <header>
+        <Link href="/keys">API keys</Link>
         <Link className="wordmark" href="/">
           Pachigraph <span>PRIVATE ARCHIVE</span>
         </Link>

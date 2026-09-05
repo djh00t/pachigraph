@@ -64,6 +64,14 @@ owner and zero external visitors. Requesting native MCP connection metadata
 returned `Sites MCP is not enabled for this Site owner`; ordinary Site metadata
 remained available. This does not establish how application Bearer requests behave.
 
+The native Sites database overview subsequently confirmed binding `DB` and the
+live tables `api_keys`, `history_fts`, `history_records`, and `thread_tombstones`.
+Bounded native reads of `history_records`, `history_fts`, and `thread_tombstones`
+each returned zero rows, `has_more=false`, and no truncation or omitted rows.
+This establishes the empty D1 record, search-index, and tombstone baseline.
+The database tools expose table and row data, not physical database size or
+capacity limits; zero rows must not be interpreted as zero allocated bytes.
+
 On 2026-09-05, Pachigraph was published privately at
 https://pachigraph.djh00t.chatgpt.site. Both native deployments reported success;
 the second includes `capabilities: ["mcp"]` in the hosting manifest. The access

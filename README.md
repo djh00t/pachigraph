@@ -11,20 +11,21 @@ There is no AI processing, embedding service, or custom authorization server.
 ## Current release state
 
 The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and passes
-local checks. Native authentication qualification is in progress. The collector and plugin are prepared but
+local checks. **The integrated MVP is blocked, not accepted.** Sites reports that
+MCP is not enabled for this Site owner. The collector and plugin are prepared but
 are not included in this checkout: automatic approval review blocked their copy
 into the repository even after explicit authorization. No personal transcripts
-have been uploaded, no daily job has been installed, and user acceptance is pending.
+have been uploaded and no daily job has been installed.
 
-| Milestone                          | State               | Evidence                                                             |
-| ---------------------------------- | ------------------- | -------------------------------------------------------------------- |
-| Site storage, search, HTTP and MCP | Local verified      | 23 tests, production build and local Workers smoke pass              |
-| Collector                          | Integration blocked | Prepared implementation: 34 tests pass with real Gitleaks            |
-| Plugin                             | Integration blocked | Prepared Pachigraph package: 5 tests pass; manifest schemas validate |
-| Private Site publication           | In progress         | Same registered Site, owner-only audience                            |
-| Native agent authentication        | Unverified          | Needs live native OAuth proof for MCP and HTTP                       |
-| Representative sample              | Pending             | No personal content imported                                         |
-| User acceptance                    | Pending             | User explicitly accepts, defers or rejects                           |
+| Milestone                          | State               | Evidence                                                  |
+| ---------------------------------- | ------------------- | --------------------------------------------------------- |
+| Site storage, search, HTTP and MCP | Local verified      | 23 tests, production build and local Workers smoke pass   |
+| Collector                          | Integration blocked | Prepared implementation: 34 tests pass with real Gitleaks |
+| Plugin                             | Integration blocked | Prepared Pachigraph package: 5 tests pass                 |
+| Private Site publication           | Complete            | Published privately with the requested MCP capability     |
+| Native agent authentication        | Platform blocked    | Sites MCP is not enabled for this Site owner              |
+| Representative sample              | Pending             | No personal content imported                              |
+| User acceptance                    | Pending             | Requires the complete workflow and explicit acceptance    |
 
 These are milestone states, not an FSM implementation.
 

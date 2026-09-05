@@ -5,9 +5,9 @@ human acceptance. It is deliberately a table, not workflow software.
 
 | State               | Entry condition                          | Exit evidence                                                    | Current              |
 | ------------------- | ---------------------------------------- | ---------------------------------------------------------------- | -------------------- |
-| Implementing        | Approved minimal scope                   | Collector, Site, plugin sources and focused tests                | Active               |
+| Implementing        | Approved minimal scope                   | Collector, Site, plugin sources and focused tests                | Integration blocked  |
 | Local verified      | Integrated code                          | `make check`, production build, synthetic end-to-end checks      | Pending              |
-| Platform qualified  | Private publication authorized           | Native OAuth identity reaches both MCP and HTTP; D1/R2 available | Pending              |
+| Platform qualified  | Private publication authorized           | Native OAuth identity reaches both MCP and HTTP; D1/R2 available | Platform blocked     |
 | Sample verified     | Platform qualified                       | Representative active, archived, long sample passes checks below | Pending              |
 | Awaiting acceptance | Evidence and limitations presented       | User explicitly accepts, defers, or rejects                      | Pending              |
 | Accepted            | User acceptance recorded                 | Remaining archive and daily collection may proceed as authorized | Pending              |
@@ -31,17 +31,21 @@ human acceptance. It is deliberately a table, not workflow software.
 
 ## Current platform evidence
 
-On 2026-09-05, the Pachigraph Site was published privately at
-https://pachigraph.djh00t.chatgpt.site. Native Sites deployment reported success.
-Anonymous requests to `/api/status` and `/mcp` were rejected with HTTP 403.
+On 2026-09-05, Pachigraph was published privately at
+https://pachigraph.djh00t.chatgpt.site. Both native deployments reported success;
+the second includes `capabilities: ["mcp"]` in the hosting manifest. The access
+policy remains custom, with one allowed owner, no groups and no external visitors.
+Anonymous `/api/status` and `/mcp` requests were rejected with HTTP 403.
 
-The initial native MCP connection request reported that the published Site does
-not declare an MCP server. The requested `mcp` capability is now included in the
-hosting manifest for platform verification. Native authenticated access remains
-unverified until Sites supplies connection details and its OAuth flow succeeds.
+After the MCP declaration was accepted and deployed, native connection discovery
+returned: **"Sites MCP is not enabled for this Site owner."** This is the current
+platform blocker. An account/platform change is required before native MCP/OAuth
+can be qualified. Do not add a custom authorization server or bypass token.
 
 The Site uses logical bindings `DB` and `FILES`. No personal records have been
-imported, and no scheduled job is installed.
+imported and no scheduled job is installed. The published application source is
+commit `0f3090ad41936d7529fa76fe3cd11970cbdebffd`; subsequent documentation records
+the live result without changing application behavior.
 
 ## External action boundaries
 

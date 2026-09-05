@@ -5,9 +5,9 @@ human acceptance. It is deliberately a table, not workflow software.
 
 | State               | Entry condition                          | Exit evidence                                                    | Current              |
 | ------------------- | ---------------------------------------- | ---------------------------------------------------------------- | -------------------- |
-| Implementing        | Approved minimal scope                   | Collector, Site, plugin sources and focused tests                | Integration blocked  |
-| Local verified      | Integrated code                          | `make check`, production build, synthetic end-to-end checks      | Pending              |
-| Platform qualified  | Private publication authorized           | Owner-scoped API keys reach MCP and HTTP; D1/R2 available | Platform blocked     |
+| Implementing        | Approved minimal scope                   | Collector, Site, plugin sources and focused tests                | Complete             |
+| Local verified      | Integrated code                          | `make check`, production build, synthetic end-to-end checks      | Complete             |
+| Platform qualified  | Private publication authorized           | Owner-scoped API keys reach MCP and HTTP; D1/R2 available        | Pending              |
 | Sample verified     | Platform qualified                       | Representative active, archived, long sample passes checks below | Pending              |
 | Awaiting acceptance | Evidence and limitations presented       | User explicitly accepts, defers, or rejects                      | Pending              |
 | Accepted            | User acceptance recorded                 | Remaining archive and daily collection may proceed as authorized | Pending              |
@@ -20,15 +20,15 @@ to deliver the next release. This acceptance covers the website only; it does no
 waive authentication, sample-ingestion, safety, capacity or agent-access
 checks. The complete workflow still requires its own explicit acceptance.
 
-The next release must integrate the collector and portable plugin/skill, qualify
-standard HTTPS MCP and equivalent authenticated HTTP access, and pass a small
+The integrated release must qualify standard HTTPS MCP and equivalent
+authenticated HTTP access, and pass a small
 active/archived/long-thread sample through the required proof below. Bulk import
 and the daily macOS schedule remain behind that acceptance gate.
 
-A fresh native Sites check during the first goal continuation returned the same
-owner-level MCP enablement error. The repository is clean at the start of that
-continuation, and both prepared packages are still present. No authorization
-server, bypass credential or alternate hosting has been introduced.
+Earlier native Sites checks returned an owner-level MCP enablement error. That is
+historical context: the current agent-credential decision uses user-authorized
+API keys instead of native Sites MCP OAuth. No authorization server, bypass
+credential or alternate hosting has been introduced.
 
 ## Required proof
 
@@ -52,17 +52,23 @@ On 2026-09-05, Pachigraph was published privately at
 https://pachigraph.djh00t.chatgpt.site. Both native deployments reported success;
 the second includes `capabilities: ["mcp"]` in the hosting manifest. The access
 policy remains custom, with one allowed owner, no groups and no external visitors.
-Anonymous `/api/status` and `/mcp` requests were rejected with HTTP 403.
+A valid-format user read key was tested through the live gateway: `GET
+/api/search` and `POST /mcp` both returned HTTP 403. `GET /api/status` was
+classified as Cloudflare Error 1010 `browser_signature_banned`, with detail that
+the Site owner is blocked by browser signature, `retryable=false`, and
+`owner_action_required=true`.
 
-After the MCP declaration was accepted and deployed, native connection discovery
-returned: **"Sites MCP is not enabled for this Site owner."** This is the current
-platform blocker. An account/platform change is required before native MCP/OAuth
-can be qualified. Do not add a custom authorization server or bypass token.
+This is a Cloudflare gateway block. It does not prove application API-key
+failure or a Sites OAuth block. Do not retry or change the user agent; owner
+action is required. Native MCP/OAuth was superseded by the API-key decision, so
+do not add a custom authorization server or bypass token.
 
 The Site uses logical bindings `DB` and `FILES`. No personal records have been
-imported and no scheduled job is installed. The published application source is
-commit `0f3090ad41936d7529fa76fe3cd11970cbdebffd`; subsequent documentation records
-the live result without changing application behavior.
+imported and no scheduled job is installed. The deployed application source is
+commit `744622126d1d59e661d4d38068acf57e2c3a4f3c`, pushed to the repository.
+Sites version 3 deployment `appgdep_6a9c23e5798c8191bdeb9da1946daf78`
+succeeded at `2026-09-05T14:15:26Z`; the private version is
+`appgprj_6a9b93afa6788191b7b0a59358a497ce~appgver_9f561efed35c8191823362705e01cdc2`.
 
 ## External action boundaries
 
@@ -71,18 +77,18 @@ publication, then supplied the public `djh00t/pachigraph` GitHub repository and
 requested the Pachigraph rename. The Site title and URL label are now Pachigraph
 and `pachigraph` respectively. Its access remains owner-only.
 
-Automatic approval review again rejected both package-copy commands despite that
-authorization, with "approval required by policy, but AskForApproval is set to
-Never". The prepared files remain in `/tmp/code-graph-collector` and
-`/tmp/code-graph-plugin`. Neither rejected integration action was retried through
-another mechanism. The earlier generated-cache cleanup was also rejected.
+Earlier automatic approval review rejected package-copy commands with
+"approval required by policy, but AskForApproval is set to Never". That blocker
+is historical: repository integration and commit permissions were subsequently
+resolved, and the packages are now integrated.
 
-The Site portion can be published for qualification, but this is not a complete
-integrated MVP release and does not authorize bulk ingestion before qualification.
+The Site is published for qualification, but live key access, representative
+sample proof and complete workflow acceptance remain pending. Bulk ingestion and
+scheduling are not authorized before those gates pass.
 
 ## Local evidence recorded 2026-09-05
 
-- `make check`: TypeScript and lint passed; 23 TypeScript tests passed against the
+- `make check`: TypeScript and lint passed; 25 app tests passed against the
   actual Drizzle migrations, including FTS triggers and R2 interruption tests.
 - `npm run build`: production build passed. The toolchain emits an upstream Node
   `punycode` deprecation warning; Node's SQLite test API emits its experimental
@@ -100,18 +106,16 @@ integrated MVP release and does not authorize bulk ingestion before qualificatio
   extrapolation of the personal archive.
 - The local server was stopped after verification. No personal content was used.
 
-## Prepared collector and plugin
+## Reviewed collector and plugin integration
 
-Both packages are ready for review but could not be copied into this repository
-because automatic approval review rejected that integration action.
-
-- Collector: `/tmp/code-graph-collector/collector.py`,
-  `/tmp/code-graph-collector/test_collector.py`, and its `USAGE.md`.
-  The worker reports 34 passing tests, real Gitleaks 8.30.1 fixtures, 80% branch
-  coverage, and passing lint/format/compile checks.
-- Plugin: `/tmp/code-graph-plugin/plugin.json`, `mcp.json`, and
-  `skills/pachigraph/`. Its 5 tests pass; official Agent Plugins 1.0 schemas
-  validate through the maintained MCP SDK's Ajv validator.
+The integrated collector and plugin changes passed review: 39 collector tests and 5
+plugin tests passed. The app baseline has 25 tests; integrated `make check` passed
+all 69 tests, with Codex plugin validation and `git diff --check` also passing.
+These changes are locally integrated but are not yet claimed as part of the
+deployed v3 source. They do not change the app runtime, so v3 remains the current
+deployment and no redeployment is required. Source publication follows the final
+documentation review. Build checks pass with the
+known upstream Node `punycode` and experimental SQLite warnings.
 - Collector sizing: 20 synthetic records needed 40 scanner processes and 3.170
   seconds (6.31 records/second). This is an initial-import throughput limitation;
   unchanged records bypass scanning, while append/backfill verifies the saved
@@ -124,11 +128,13 @@ because automatic approval review rejected that integration action.
 ## API-key authentication decision
 
 The user explicitly requested an API-key generator instead of Sites MCP enablement.
-The local implementation adds browser-managed, hashed, expiring and revocable
+The deployed implementation adds browser-managed, hashed, expiring and revocable
 read or ingest keys. Standard MCP and HTTP resolve the owner from the key record.
 This supersedes the native OAuth requirement for agent credentials; browser key
-management still requires native Sites sign-in. Live deployment and ingress
-qualification remain pending. No Site sharing or platform enablement was changed.
+management still requires native Sites sign-in. Deployment succeeded; live
+ingress qualification is blocked by Cloudflare Error 1010 pending owner action;
+the application-key outcome remains unknown. No Site sharing or platform
+enablement was changed.
 
 ### Local API-key runtime proof
 
@@ -149,11 +155,12 @@ trusted browser identity headers against production.
 | Current website | User-accepted |
 | API-key generator and HTTP/MCP integration | Locally verified |
 | Collector and plugin integration | Integrated on 2026-09-06 |
-| Published Bearer-key access | Unverified |
+| Published Bearer-key access | Gateway blocked; app-key outcome unproven; `/api/search` and `/mcp` returned 403 |
 | Representative personal sample | Pending |
 | Complete workflow acceptance | Pending |
 
 On 2026-09-06, following the user's confirmation of full access, package
 integration succeeded. The earlier approval restriction is historical; the
 collector and plugin are now present in the repository. API-key live access
-and representative-sample acceptance remain pending.
+and representative-sample acceptance remain pending. The live gateway block does
+not establish an application-key failure.

@@ -10,7 +10,7 @@ There is no AI processing, embedding service, or custom authorization server.
 
 ## Current release state
 
-### API keys (local implementation)
+### API keys
 
 Sign in and open `/keys` to generate or revoke an owner-scoped API key. Choose
 read access (search, fetch, status and MCP) or ingestion access, and an expiry
@@ -20,30 +20,31 @@ Keys cannot delete threads or manage other keys. Invalid or expired keys are
 rejected even when a browser session is present. Revocation applies on the next
 request; a request already authorized may finish.
 
-Apply the generated D1 migration as part of deployment before using this feature.
-The key generator and authentication are not yet deployed. Sites may intercept
-external requests before application authentication; live key access remains
-unverified. This implementation does not enable Sites MCP or change Site sharing.
+The generated D1 migration is included in the deployed release. Sites may still
+intercept external requests before application authentication; live key access
+remains unverified. This implementation does not enable Sites MCP or change Site
+sharing.
 
-The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and passes
-local checks. **The user has accepted the current website.** The next release
-will deliver sample ingestion and agent access; that complete workflow remains
-unaccepted. The collector and plugin are now included in `collector/` and
-`plugins/pachigraph/`. The user authorized API keys instead of native Sites MCP
-OAuth. No personal transcripts have been uploaded and no daily job is installed.
+The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and
+**the user has accepted the current website**. The collector and plugin are
+included in `collector/` and `plugins/pachigraph/`. The user authorized API keys
+instead of native Sites MCP OAuth for agent credentials. No personal transcripts
+have been uploaded and no daily job is installed. The complete workflow remains
+unaccepted pending live key access and representative-sample proof.
 
 | Milestone | State | Evidence |
 |---|---|---|
-| Site storage, search, HTTP and MCP | Locally verified | 25 tests and Workers API-key smoke |
-| Collector | Integrated | 38 tests with Gitleaks |
-| Plugin | Integrated | Agent Plugins and Codex manifests; CLI tests |
-| API-key publication | Pending | Local checks passed |
-| Live agent authentication | Unverified | Requires gateway test after publication |
+| Site storage, search, HTTP and MCP | Locally verified | 25 app tests and Workers API-key smoke |
+| Collector | Integrated and approved | 39 collector tests passed with Gitleaks |
+| Plugin | Integrated and approved | 5 plugin tests; Agent Plugins and Codex manifests |
+| API-key publication | Deployed; gateway qualification blocked | Version 3 deployment succeeded; Cloudflare owner action is required |
+| Live agent authentication | Gateway blocked; app auth unverified | Valid-format key reached live gateway: GET `/api/search` and POST `/mcp` returned 403; `/api/status` was Cloudflare Error 1010 with owner action required |
 | Representative sample | Pending | No personal content imported |
 | Website acceptance | Accepted | User accepted prior website |
-| Complete workflow acceptance | Pending | Requires sample and agent access |
+| Complete workflow acceptance | Pending | Requires live key access and representative sample |
 
-These are milestone states, not an FSM implementation.
+See [feature-status.md](docs/feature-status.md) for the complete feature matrix and
+FSM milestones.
 
 ## Local development
 
@@ -59,9 +60,10 @@ npm run dev -- --host 127.0.0.1
 ```
 
 Sites provisions the `DB` D1 and `FILES` R2 bindings. Drizzle migrations are the
-only schema initialization mechanism. Generated migrations and the FTS migration
-must be applied to local D1 before exercising a local development server. Do not
-point development tools at production data or expose the local server publicly.
+only schema initialization mechanism. Apply all three migrations (`0000`, `0001`
+and `0002_graceful_mysterio.sql`) to local D1 before exercising a local development server.
+The deployed artifact already contains the API-key migration. Do not point
+development tools at production data or expose the local server publicly.
 
 Authentication is provided by Sites dispatch. The application trusts the native
 forwarded user ID and email only behind that boundary. Local tests inject an owner
@@ -122,9 +124,7 @@ record ID, source event identity and timestamp remain usable independently.
 ## Qualification before real ingestion
 
 1. Build and test the local workflow with synthetic secret fixtures.
-2. Publish privately through Sites under the existing authorization, including
-   the API-key migration.
-3. Generate keys through browser sign-in and prove Bearer authentication reaches
+2. Generate keys through browser sign-in and prove Bearer authentication reaches
    both MCP and collector HTTP endpoints with the same owner. Test expired,
    revoked and wrong-scope keys. If Sites blocks requests before the application,
    report that limitation; do not change sharing or extract browser credentials.
@@ -164,11 +164,12 @@ policy override was used. Recheck advisories before publication.
 
 ## Repeat the local storage smoke measurement
 
-After `make build`, initialize a fresh **local** database with the two migrations:
+After `make build`, initialize a fresh **local** database with all three migrations:
 
 ```sh
 npx wrangler d1 execute DB --local --config dist/server/wrangler.json --file drizzle/0000_tearful_valeria_richards.sql
 npx wrangler d1 execute DB --local --config dist/server/wrangler.json --file drizzle/0001_history_fts.sql
+npx wrangler d1 execute DB --local --config dist/server/wrangler.json --file drizzle/0002_graceful_mysterio.sql
 npm run start -- --ip 127.0.0.1 --port 8787
 ```
 

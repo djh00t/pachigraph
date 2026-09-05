@@ -2,9 +2,13 @@
 
 import hashlib
 import json
+import subprocess
+import sys
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
 owner = "synthetic-key-" + str(uuid.uuid4())
 thread = str(uuid.uuid4())
@@ -14,7 +18,7 @@ created = []
 def call(path, method="GET", body=None, key=None, human=False, expected=200):
     headers = {
         "content-type": "application/json",
-        "accept": "application/json, text/event-stream",
+        "accept": "application/json",
     }
     if human:
         headers.update(
@@ -39,6 +43,23 @@ def call(path, method="GET", body=None, key=None, human=False, expected=200):
         assert response.status == expected, (path, response.status, expected)
         data = response.read()
     return json.loads(data) if data else None
+
+
+def query(*args, key, expected=0):
+    """Exercise the shipped skill tool with an owner-only synthetic key file."""
+    script = Path(__file__).parents[1] / "plugins/pachigraph/skills/pachigraph/scripts/query.py"
+    with tempfile.TemporaryDirectory() as directory:
+        token_file = Path(directory) / "key"
+        token_file.write_text(key)
+        token_file.chmod(0o600)
+        result = subprocess.run(
+            [sys.executable, str(script), "--base-url", "http://127.0.0.1:8787",
+             "--token-file", str(token_file), *args],
+            text=True, capture_output=True, timeout=25,
+        )
+    assert result.returncode == expected, result.stderr
+    assert key not in result.stdout + result.stderr
+    return json.loads(result.stdout) if result.stdout else None
 
 
 try:
@@ -73,57 +94,19 @@ try:
     call("/api/search?q=keyverificationpassage", key=ingest, expected=403)
     call("/api/ingest", "POST", record, key=read, expected=403)
     call("/api/keys", key=read, expected=401)
-    initialized = call(
-        "/mcp",
-        "POST",
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "synthetic-smoke", "version": "1"},
-            },
-        },
-        key=read,
-    )
-    assert initialized["result"]["serverInfo"]["name"] == "pachigraph"
-    tools = call(
-        "/mcp",
-        "POST",
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-        key=read,
-    )
-    assert {tool["name"] for tool in tools["result"]["tools"]} == {"search", "fetch"}
-    result = call(
-        "/mcp",
-        "POST",
-        {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "search",
-                "arguments": {"query": "keyverificationpassage"},
-            },
-        },
-        key=read,
-    )
-    assert not result["result"].get("isError")
-    evidence = json.loads(result["result"]["content"][0]["text"])
-    assert evidence["results"][0]["id"] == found[0]["id"]
+    evidence = query("search", "keyverificationpassage", key=read)["results"]
+    assert evidence == found
+    fetched = query("fetch", evidence[0]["id"], key=read)
+    assert fetched["thread_id"] == thread
+    assert fetched["citation"] == evidence[0]["citation"]
+    status = query("status", key=read)
+    assert status["threads"] == 1 and status["records"] == 1
+    query("status", key=ingest, expected=2)
     call("/api/keys?id=" + created[0]["id"], "DELETE", human=True)
     call("/api/search?q=keyverificationpassage", key=read, expected=401)
-    call(
-        "/mcp",
-        "POST",
-        {"jsonrpc": "2.0", "id": 4, "method": "tools/list"},
-        key=read,
-        expected=401,
-    )
+    query("status", key=read, expected=2)
     print(
-        "PASS: generated keys, ingest/replay, search/fetch, scope enforcement, MCP lifecycle/search and revocation"
+        "PASS: generated keys, ingest/replay, HTTP skill search/fetch/status, scope enforcement and revocation"
     )
 finally:
     for item in created:

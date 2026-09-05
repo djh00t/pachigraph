@@ -33,6 +33,8 @@ class Handler(BaseHTTPRequestHandler):
         body = {"results": [{"id": "r1", "thread_id": "t1", "timestamp": "now", "text": "found", "citation": "c"}]}
         if self.path.startswith("/api/fetch"):
             body = {"id": "r1", "thread_id": "t1", "timestamp": "now", "text": "full", "record": {"x": 1}, "citation": "c"}
+        if self.path == "/api/status":
+            body = {"threads": 1, "records": 2, "text_bytes": 64, "last_ingested_at": None}
         encoded = json.dumps(body).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -55,6 +57,8 @@ class PluginTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
 
     def run_query(self, *args, token="secret-token"):
         with tempfile.TemporaryDirectory() as td:
@@ -73,6 +77,13 @@ class PluginTests(unittest.TestCase):
         result = self.run_query("fetch", "r1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["record"], {"x": 1})
+
+    def test_status_uses_read_api_without_query_parameters(self):
+        result = self.run_query("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"threads": 1, "records": 2, "text_bytes": 64, "last_ingested_at": None})
+        self.assertEqual(Handler.paths[-1], "/api/status")
+        self.assertEqual(Handler.token_seen, "Bearer secret-token")
 
     def test_rejects_insecure_non_loopback_and_bad_token_permissions(self):
         with tempfile.TemporaryDirectory() as td:
@@ -109,16 +120,12 @@ class PluginTests(unittest.TestCase):
 
     def test_manifests_match_official_contract(self):
         plugin = json.loads((ROOT / "plugin.json").read_text())
-        mcp = json.loads((ROOT / "mcp.json").read_text())
         self.assertEqual(plugin["$schema"], "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json")
         self.assertEqual(set(plugin), {"$schema", "name", "version", "description", "author", "keywords"})
         self.assertEqual(plugin["name"], "pachigraph")
         self.assertEqual(plugin["version"], "0.1.0")
         self.assertEqual(plugin["author"], {"name": "djh00t"})
-        self.assertEqual(mcp["$schema"], "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json")
-        self.assertEqual(set(mcp), {"$schema", "mcpServers"})
-        server = mcp["mcpServers"]["pachigraph"]
-        self.assertEqual(server, {"type": "streamable-http", "url": "https://pachigraph.djh00t.chatgpt.site/mcp"})
+        self.assertFalse((ROOT / "mcp.json").exists())
 
         codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
         self.assertNotIn("mcpServers", codex)

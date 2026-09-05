@@ -1,4 +1,4 @@
-/** HTTP boundary shared by Sites routes and the MCP endpoint. */
+/** HTTP boundary for authenticated Sites API routes. */
 export type HistoryAPI = {
   search(owner: string, query: string): Promise<unknown>;
   fetch(owner: string, id: string): Promise<unknown>;

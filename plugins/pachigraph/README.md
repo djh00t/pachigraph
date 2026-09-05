@@ -1,33 +1,23 @@
 # Pachigraph plugin
 
-This package supports the portable Agent Plugins 1.0 layout and Codex. Its MCP
-and HTTP endpoints are read-only when used with an owner-generated read key.
+This package provides a portable Agent Skill with Python HTTP tools. It supports
+the Agent Plugins 1.0 and Codex layouts, and can also be installed as a standalone
+skill. No MCP server registration is required.
 
 Generate a read key from the signed-in
 [`/keys`](https://pachigraph.djh00t.chatgpt.site/keys) page.
 
-## Codex MCP
+## Install the skill
 
-Put the key in the `PACHIGRAPH_API_KEY` environment variable using your normal
-secret manager or shell startup configuration. Register the remote server with
-the environment variable name; the command does not contain the key:
+Copy `skills/pachigraph/` into your agent's skill directory. For Codex, use
+`~/.codex/skills/pachigraph/` (or `$CODEX_HOME/skills/pachigraph/`). Keep its
+`SKILL.md` and `scripts/query.py` together. Invoke `$pachigraph` in a task and
+provide the key-file path, never the key value. The agent must have a shell tool
+and permission to reach the configured HTTPS API.
 
-```sh
-codex mcp add pachigraph \
-  --url https://pachigraph.djh00t.chatgpt.site/mcp \
-  --bearer-token-env-var PACHIGRAPH_API_KEY
-```
-
-Restart Codex, then inspect the connection with `codex mcp get pachigraph` or
-`/mcp`. The Codex plugin manifest intentionally packages the skill only: the
-supported environment-backed Bearer setting belongs in the user's MCP config.
-
-## Portable Agent Plugins clients
-
-`plugin.json`, `mcp.json`, and `skills/` form the portable package. Agent
-Plugins 1.0 does not define a portable credential-reference field, so configure
-your client to send the read key as `Authorization: Bearer <key>`. Do not add it
-to either manifest.
+Clients supporting Agent Plugins can load this package's `plugin.json` and
+`skills/`; Codex plugin clients can use `.codex-plugin/plugin.json`. Neither
+manifest contains credentials or a remote tool-server configuration.
 
 ## HTTP CLI
 
@@ -40,7 +30,14 @@ python3 skills/pachigraph/scripts/query.py \
   --token-file /absolute/path/to/key search 'query terms'
 python3 skills/pachigraph/scripts/query.py \
   --token-file /absolute/path/to/key fetch RECORD_ID
+python3 skills/pachigraph/scripts/query.py \
+  --token-file /absolute/path/to/key status
 ```
 
 The CLI uses only Python's standard library, rejects redirects, and accepts
 plain HTTP only for loopback testing.
+
+The commands call `/api/search`, `/api/fetch`, and `/api/status` with the read
+key. `status.text_bytes` measures indexed text only, not allocated D1 storage.
+The collector retains its separate ingest key. Live HTTP gateway qualification
+is still required; installing the skill does not change Sites access controls.

@@ -74,6 +74,7 @@ def get(base, token, path, params=None):
 
 
 def main(argv=None):
+    """Run a read-only HTTP operation and emit JSON without exposing the key."""
     parser = argparse.ArgumentParser(description="Query Pachigraph history")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--token-file", required=True)
@@ -82,14 +83,17 @@ def main(argv=None):
     search.add_argument("query")
     fetch = sub.add_parser("fetch")
     fetch.add_argument("id")
+    sub.add_parser("status")
     args = parser.parse_args(argv)
     try:
         base = endpoint(args.base_url)
         token = token_from(args.token_file)
         if args.command == "search":
             result = get(base, token, "/api/search", {"q": args.query})
-        else:
+        elif args.command == "fetch":
             result = get(base, token, "/api/fetch", {"id": args.id})
+        else:
+            result = get(base, token, "/api/status")
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (ValueError, RuntimeError) as exc:

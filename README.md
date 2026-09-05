@@ -5,7 +5,7 @@
 [Project repository](https://github.com/djh00t/pachigraph)
 
 Find useful knowledge in active and archived Codex conversations. This MVP uses
-Sites identity, R2 source records, D1 full-text search, and the maintained MCP SDK.
+Sites identity, R2 source records, D1 full-text search, and a skill with HTTP tools.
 There is no AI processing, embedding service, or custom authorization server.
 
 ## Current release state
@@ -13,36 +13,39 @@ There is no AI processing, embedding service, or custom authorization server.
 ### API keys
 
 Sign in and open `/keys` to generate or revoke an owner-scoped API key. Choose
-read access (search, fetch, status and MCP) or ingestion access, and an expiry
+read access (search, fetch and status) or ingestion access, and an expiry
 between 1 and 365 days. Copy the key when generated; only its SHA-256 hash is
-stored in D1. Send it as `Authorization: Bearer <key>` to the HTTP API or `/mcp`.
+stored in D1. The skill sends it as `Authorization: Bearer <key>` to the HTTP API.
 Keys cannot delete threads or manage other keys. Invalid or expired keys are
 rejected even when a browser session is present. Revocation applies on the next
 request; a request already authorized may finish.
 
 The generated D1 migration is included in the deployed release. Sites may still
 intercept external requests before application authentication; live key access
-remains unverified. This implementation does not enable Sites MCP or change Site
-sharing.
+remains unverified. The skill does not change Site sharing or gateway policy.
 
 The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and
 **the user has accepted the current website**. The collector and plugin are
 included in `collector/` and `plugins/pachigraph/`. The user authorized API keys
-instead of native Sites MCP OAuth for agent credentials. No personal transcripts
+and direct HTTP tools for agent access. No personal transcripts
 have been uploaded and no daily job is installed. The complete workflow remains
 unaccepted pending live key access and representative-sample proof.
 
 | Milestone | State | Evidence |
 |---|---|---|
-| Site storage, search, HTTP and MCP | Locally verified | 25 app tests and Workers API-key smoke |
+| Site storage, search and HTTP | Locally verified | 21 app tests and the built-Workers HTTP skill smoke |
 | Collector | Integrated and approved | 39 collector tests passed with Gitleaks |
-| Plugin | Integrated and approved | 5 plugin tests; Agent Plugins and Codex manifests |
+| HTTP skill | Reviewed and installed; private publication pending | 6 plugin tests; skill and plugin validators; real CLI smoke |
 | Source batch | Published | Commit `400e6da` pushed to `origin/main`; includes collector `b6927d3` and plugin `989d1c4` |
 | API-key publication | Deployed; gateway qualification blocked | Version 3 deployment succeeded; Cloudflare owner action is required |
-| Live agent authentication | Gateway blocked; app auth unverified | Valid-format key reached live gateway: GET `/api/search` and POST `/mcp` returned 403; `/api/status` was Cloudflare Error 1010 with owner action required |
+| Live agent authentication | Gateway blocked; app auth unverified | GET `/api/search` returned 403; `/api/status` was Cloudflare Error 1010 with owner action required |
 | Representative sample | Pending | No personal content imported |
 | Website acceptance | Accepted | User accepted prior website |
 | Complete workflow acceptance | Pending | Requires live key access and representative sample |
+
+The HTTP-only candidate passed 66 tests (21 app, 39 collector, 6 plugin) and
+`make build`. It removes the four MCP transport tests and adds a status-command
+test. Source publication and private deployment of this candidate are pending.
 
 See [feature-status.md](docs/feature-status.md) for the complete feature matrix and
 FSM milestones.
@@ -83,7 +86,6 @@ owner comes from Sites sign-in or the stored API-key owner; request bodies and q
 | `GET /api/status`            | Owner's conversation/revision counts, indexed text bytes, last ingestion |
 | `POST /api/ingest`           | Idempotent append of sanitized records                                   |
 | `DELETE /api/thread?id=UUID` | Owner-authorized deletion and permanent re-ingestion tombstone           |
-| `POST /mcp`                  | Stateless Streamable HTTP MCP `search` and `fetch`                       |
 
 Ingestion accepts JSON up to 512 KiB:
 
@@ -126,18 +128,21 @@ record ID, source event identity and timestamp remain usable independently.
 
 1. Build and test the local workflow with synthetic secret fixtures.
 2. Generate keys through browser sign-in and prove Bearer authentication reaches
-   both MCP and collector HTTP endpoints with the same owner. Test expired,
+   the skill's read HTTP tools and collector ingestion endpoint with the same owner. Test expired,
    revoked and wrong-scope keys. If Sites blocks requests before the application,
    report that limitation; do not change sharing or extract browser credentials.
-4. Select a small active, archived, and long-thread sample, using the same collector
+3. Select a small active, archived, and long-thread sample, using the same collector
    command intended for later incremental runs. Inspect only sanitized output.
-5. Check exact replay, append, backfill, secret absence, owner isolation, deletion,
+4. Check exact replay, append, backfill, secret absence, owner isolation, deletion,
    interrupted retry, citations, and end-to-end search latency.
-6. Measure actual D1 database bytes including FTS against Sites capacity before
+5. Measure actual D1 database bytes including FTS against Sites capacity before
    increasing the sample. Text bytes alone are not database size. Extrapolate using
    the sample's ratio and source corpus metadata; keep substantial headroom.
-7. Ask the user to explicitly accept, defer, or reject this release. Only then
+6. Ask the user to explicitly accept, defer, or reject this release. Only then
    consider the remaining archive and the native macOS daily schedule.
+
+Sites documents a 10 GB D1 database limit and no fixed R2 storage limit. See
+[Sites storage limits](https://learn.chatgpt.com/docs/sites#understand-limits-and-unsupported-uses).
 
 ## Security and scope
 
@@ -180,11 +185,17 @@ cannot qualify live authentication and must never be adapted to target a public
 server. The saved measurement includes actual SQLite page allocation, which can
 reuse space from prior deleted synthetic samples.
 
+With the loopback server running, `python3 tests/local-api-keys.py` also runs the
+shipped skill's search, fetch and status commands against synthetic owner-scoped
+keys. It checks scope rejection and revocation, then removes its keys and records.
+
 ## Collector and plugin
 
 See `collector/USAGE.md` for resumable import and backfill commands. Use an ingest
 API key with the collector and a separate read key with `plugins/pachigraph`.
 The plugin contains both Agent Plugins and Codex manifests plus the portable
-Agent Skill and Python CLI. Configure Bearer authentication in the MCP client;
-never commit keys into manifests. Scheduling and bulk import remain disabled
+Agent Skill and Python CLI. Install the [skill](plugins/pachigraph/README.md) and
+invoke `$pachigraph` with the path to an owner-only read-key file. The tool calls
+the existing HTTPS API directly; no `/mcp` endpoint or server setup is needed.
+Never commit keys into manifests. Scheduling and bulk import remain disabled
 until representative-sample acceptance.

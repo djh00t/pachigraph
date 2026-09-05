@@ -7,7 +7,7 @@ human acceptance. It is deliberately a table, not workflow software.
 | ------------------- | ---------------------------------------- | ---------------------------------------------------------------- | -------------------- |
 | Implementing        | Approved minimal scope                   | Collector, Site, plugin sources and focused tests                | Complete             |
 | Local verified      | Integrated code                          | `make check`, production build, synthetic end-to-end checks      | Complete             |
-| Platform qualified  | Private publication authorized           | Owner-scoped API keys reach MCP and HTTP; D1/R2 available        | Pending              |
+| Platform qualified  | Private publication authorized           | Skill and collector use owner-scoped HTTP keys; D1/R2 available  | Pending              |
 | Sample verified     | Platform qualified                       | Representative active, archived, long sample passes checks below | Pending              |
 | Awaiting acceptance | Evidence and limitations presented       | User explicitly accepts, defers, or rejects                      | Pending              |
 | Accepted            | User acceptance recorded                 | Remaining archive and daily collection may proceed as authorized | Pending              |
@@ -20,15 +20,18 @@ to deliver the next release. This acceptance covers the website only; it does no
 waive authentication, sample-ingestion, safety, capacity or agent-access
 checks. The complete workflow still requires its own explicit acceptance.
 
-The integrated release must qualify standard HTTPS MCP and equivalent
-authenticated HTTP access, and pass a small
+The integrated release must qualify the skill's authenticated HTTPS tools and
+collector ingestion access, and pass a small
 active/archived/long-thread sample through the required proof below. Bulk import
 and the daily macOS schedule remain behind that acceptance gate.
 
-Earlier native Sites checks returned an owner-level MCP enablement error. That is
-historical context: the current agent-credential decision uses user-authorized
-API keys instead of native Sites MCP OAuth. No authorization server, bypass
-credential or alternate hosting has been introduced.
+On 2026-09-06, the user replaced the MCP requirement with a skill using HTTP
+tools. The existing read-only Python CLI is the agent interface for search,
+fetch, and status; the collector keeps its separate ingest key. The MCP route,
+plugin server manifest, SDK dependency, and Sites MCP capability are removed
+from the new source. Native MCP enablement is no longer a release gate. The
+independent HTTP gateway restriction still requires qualification. No
+authorization server, bypass credential, or alternate hosting is introduced.
 
 ## Required proof
 
@@ -42,11 +45,36 @@ credential or alternate hosting has been introduced.
 - Search finds a known distinctive passage with the correct original conversation,
   source record and timestamp. Record p50/p95 and corpus size, not just pass/fail.
 - Measure actual D1 size (including FTS) before the sample and after it. Extrapolate
-  against the current Sites capacity before allowing bulk ingestion.
-- Prove authenticated CLI and MCP access use keys tied to the same signed-in owner. Local tests
+  against the 10 GB Sites D1 limit before allowing bulk ingestion. Sites documents
+  no fixed R2 storage limit; these limits do not measure actual allocation.
+  Source: https://learn.chatgpt.com/docs/sites#understand-limits-and-unsupported-uses.
+- Prove the skill CLI and collector use keys tied to the same signed-in owner. Local tests
   that inject an owner do not satisfy this check.
 
-## Current platform evidence
+## HTTP skill release evidence
+
+The HTTP-only source passed `make check`: 21 application tests, 39 collector
+tests, and 6 plugin tests (66 total). The four removed MCP tests are no longer
+applicable; the added CLI test exercises the existing status API. `make build`,
+the skill validator, and the Codex plugin validator also passed.
+
+`tests/local-api-keys.py` ran against the production build on loopback with a
+fresh temporary D1/R2 store and all three migrations. The shipped skill script
+successfully searched, fetched a matching citation, and read status with a
+generated synthetic read key. An ingest key was rejected by the status command;
+the read key was rejected after revocation. Exact ingest replay remained
+idempotent. Synthetic keys and records were removed, the local server stopped,
+and the temporary store removed. No personal files or live credentials were
+used. This is local application and tool evidence, not production API access.
+
+The reviewed standalone skill was installed at `~/.codex/skills/pachigraph`;
+its files match the repository source byte for byte and its command help lists
+search, fetch and status. The HTTP-only release passed independent review and still requires source
+publication and private deployment. The shipped HTTP tool reached 89.41%
+coverage under the installed coverage tooling (6 tests passed). Live Bearer HTTP access, sample proof and
+complete workflow acceptance remain pending.
+
+## Platform evidence before the HTTP-only release
 
 On 2026-09-06 (Australia/Sydney), the Codex in-app browser connected without
 installation or configuration changes. After the user signed in through ChatGPT,

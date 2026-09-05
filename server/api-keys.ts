@@ -25,9 +25,8 @@ export function createKeys(db: D1Database) {
       const path = new URL(request.url).pathname;
       const allowed =
         row.scope === 'read'
-          ? (path === '/mcp' && request.method === 'POST') ||
-            (['/api/search', '/api/fetch', '/api/status'].includes(path) &&
-              request.method === 'GET')
+          ? ['/api/search', '/api/fetch', '/api/status'].includes(path) &&
+            request.method === 'GET'
           : row.scope === 'ingest' &&
             path === '/api/ingest' &&
             request.method === 'POST';

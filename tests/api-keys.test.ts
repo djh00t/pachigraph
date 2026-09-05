@@ -67,10 +67,12 @@ test('keys are hashed, owner scoped, limited, expiring and revocable', async () 
       await keys.resolve(request('/api/search', 'GET', key), 'bob'),
       'alice',
     );
-    assert.equal(
-      await keys.resolve(request('/mcp', 'POST', key), null),
-      'alice',
-    );
+    for (const path of ['/api/search', '/api/fetch', '/api/status']) {
+      assert.equal(await keys.resolve(request(path, 'GET', key), null), 'alice');
+    }
+    await assert.rejects(keys.resolve(request('/mcp', 'POST', key), null), {
+      status: 403,
+    });
     await assert.rejects(
       keys.resolve(request('/api/ingest', 'POST', key), null),
       { status: 403 },
@@ -106,10 +108,10 @@ test('keys are hashed, owner scoped, limited, expiring and revocable', async () 
       keys.resolve(request('/api/thread', 'DELETE', ingest.key), null),
       { status: 403 },
     );
-    for (const path of ['/api/search', '/api/fetch', '/api/status', '/mcp']) {
+    for (const path of ['/api/search', '/api/fetch', '/api/status']) {
       await assert.rejects(
         keys.resolve(
-          request(path, path === '/mcp' ? 'POST' : 'GET', ingest.key),
+          request(path, 'GET', ingest.key),
           null,
         ),
         { status: 403 },

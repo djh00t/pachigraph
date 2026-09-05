@@ -144,11 +144,7 @@ export function createHistory(db: D1Database, bucket: R2Bucket) {
       for (const item of input.records) {
         const canonicalRecord = canonical(item.record);
         const revision = await digest(
-          canonical({
-            record: item.record,
-            text: item.text,
-            timestamp: item.timestamp,
-          }),
+          `{"record":${canonicalRecord},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`,
         );
         const id = await digest(
           `${owner}\n${input.thread_id}\n${item.id}\n${revision}`,

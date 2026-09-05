@@ -325,3 +325,26 @@ test('rejects malformed and deeply nested records as 400', async () => {
     status: 400,
   });
 });
+
+test('accepts depth 64, preserves replay identity, and rejects depth 65', async () => {
+  const { history, bucket } = setup();
+  let record: Record<string, unknown> = { value: 'boundary' };
+  for (let depth = 1; depth < 64; depth += 1) record = { child: record };
+  const sample = input('boundary depth', record);
+  assert.deepEqual(await history.ingest(OWNER_A, sample), {
+    stored: 1,
+    duplicate: 0,
+  });
+  const found = (await history.search(OWNER_A, 'boundary')).results[0];
+  assert.deepEqual((await history.fetch(OWNER_A, found.id)).record, record);
+  assert.deepEqual(await history.ingest(OWNER_A, sample), {
+    stored: 0,
+    duplicate: 1,
+  });
+  assert.equal(bucket.objects.size, 1);
+  await assert.rejects(
+    history.ingest(OWNER_A, input('too deep', { child: record })),
+    { status: 400 },
+  );
+  assert.equal(bucket.objects.size, 1);
+});

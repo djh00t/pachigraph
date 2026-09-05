@@ -41,9 +41,9 @@ Occurrence counters used for fallback record IDs are updated incrementally in
 the same SQLite transaction as each acknowledged checkpoint.
 
 The 384 KiB per-record ceiling is an explicit MVP limit, including the exact
-boundary value. Malformed records,
-records above that ceiling, and other skipped inputs remain tracked for
-backfill. The CLI prints only safe counters and exits nonzero whenever gaps
+boundary value. Malformed records, non-finite JSON numbers, records above that
+ceiling, and other skipped inputs remain tracked for backfill. The CLI prints
+only safe counters and exits nonzero whenever gaps
 remain. A complete archive run therefore requires both `gaps` and
 `pending_gaps` to be zero.
 

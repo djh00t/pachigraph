@@ -773,6 +773,48 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result["records"], 3)
         self.assertEqual(result["gaps"], 1)
 
+    def test_non_finite_numbers_are_explicit_gaps(self):
+        self.write_session(
+            "sessions/a.jsonl",
+            [
+                {
+                    "type": "session_meta",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "payload": {"id": "019cbbc4-7fd4-7bca-9dc4-d63a3439189e"},
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "payload": {"value": float("nan")},
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-01-01T00:00:02Z",
+                    "payload": {"value": 1e400},
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-01-01T00:00:03Z",
+                    "payload": {"value": 10**400},
+                },
+            ],
+        )
+        uploads = []
+
+        def upload(_url, _token, payload):
+            uploads.append(payload)
+            return 200, {"stored": len(payload["records"]), "duplicate": 0}
+
+        with (
+            mock.patch.object(collector, "_scanner", return_value=[]),
+            mock.patch.object(collector, "_upload", side_effect=upload),
+        ):
+            result = collector.collect(self.home, "http://localhost:9", self.state)
+        self.assertEqual(result["records"], 1)
+        self.assertEqual(result["gaps"], 3)
+        self.assertEqual(result["pending_gaps"], 3)
+        self.assertEqual(len(uploads[0]["records"]), 1)
+
     def test_nesting_gap_consumes_occurrence_for_backfill_stability(self):
         def nested(depth):
             value = "leaf"

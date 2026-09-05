@@ -6,6 +6,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import os
 import plistlib
 import re
@@ -211,17 +212,23 @@ def _valid_timestamp(value):
     return parsed.tzinfo is not None and parsed.utcoffset() is not None
 
 
-def _valid_nesting(value, maximum=64):
+def _record_error(value, maximum=64):
     pending = [(value, 0)]
     while pending:
         item, depth = pending.pop()
         if depth > maximum:
-            return False
+            return "nesting-depth"
+        if isinstance(item, (int, float)) and not isinstance(item, bool):
+            try:
+                if not math.isfinite(item):
+                    return "non-finite-number"
+            except OverflowError:
+                return "non-finite-number"
         if isinstance(item, dict):
             pending.extend((child, depth + 1) for child in item.values())
         elif isinstance(item, list):
             pending.extend((child, depth + 1) for child in item)
-    return True
+    return None
 
 
 def _type(record):
@@ -730,10 +737,10 @@ def collect(
                             reason = "malformed-json"
                         if item is not None and not isinstance(item, dict):
                             reason = "non-object"
-                        elif item is not None and not _valid_nesting(item):
-                            reason = "nesting-depth"
+                        elif item is not None:
+                            reason = _record_error(item)
                     if reason:
-                        if reason == "nesting-depth":
+                        if reason in {"nesting-depth", "non-finite-number"}:
                             ts, typ = _timestamp(item), _type(item)
                             if _valid_timestamp(ts):
                                 key = (ts, typ)

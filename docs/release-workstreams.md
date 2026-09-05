@@ -2,9 +2,9 @@
 
 The current work replaces MCP with the existing skill's direct HTTP tools,
 adds the read-only status command, and removes the MCP route and dependencies.
-The collector and stored data contracts are unchanged. The deployed app baseline
-is `744622126d1d59e661d4d38068acf57e2c3a4f3c` (private Sites version 3); this
-HTTP-only change requires review, source publication, and a private deployment.
+The collector and stored data contracts are unchanged. Reviewed source
+`628e41bab9c377fefbbc2e8fe5c756c6cdb2ac30` is pushed to GitHub and Sites,
+and privately deployed as Sites version 4. The standalone skill is installed.
 The website is accepted; the integrated workflow is not yet accepted.
 
 ## Ownership and dependency graph
@@ -54,7 +54,7 @@ publish or create credentials. No new dependencies without Dependency Advisor.
 |---|---|
 | Independent stream execution | Complete |
 | HTTP-only release review | Approved; corrected documentation confirmed |
-| HTTP-only source publication and private deployment | Pending |
+| HTTP-only source publication and private deployment | Complete: `628e41b`, private version 4 |
 | Live platform qualification | Blocked by Cloudflare Error 1010 pending owner action |
 | Representative sample | Pending |
 | Workflow acceptance | Pending |

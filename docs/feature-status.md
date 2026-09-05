@@ -12,11 +12,11 @@ state.
 |---|---|---|---|---|---|---|
 | Site storage, D1 schema, R2 records and FTS | 🟢 Local verified | Sites DB/FILES bindings; Drizzle migrations | Keep migrations as the schema path | /root/application_review | Sol | high |
 | Search, fetch, status and deletion HTTP routes | 🟢 Local verified | Storage and owner resolution | Exercise during live qualification | /root/application_review | Sol | high |
-| MCP transport | 🔵 Superseded in new source | User selected a skill with HTTP tools | Publish the HTTP-only release | Orchestrator (no subagent) | current session | not exposed |
+| MCP transport | 🔵 Removed in version 4 | User selected a skill with HTTP tools | Preserve historical evidence | Orchestrator (no subagent) | current session | not exposed |
 | Browser API-key generation and revocation | 🟢 Local verified | Sites sign-in; API-key migration | Await Cloudflare owner action before live UAT | /root/application_review | Sol | high |
 | Read and ingest key scopes and expiry | 🟢 Local verified | API-key store and route guards | Test wrong scope and expiry live | /root/application_review | Sol | high |
 | API-key migration in deployed source | 🟠 Deployed; UAT pending | Commit `744622126d1d59e661d4d38068acf57e2c3a4f3c` | Confirm live key-backed route behavior | /root/application_review | Sol | high |
-| Private Sites version 3 deployment | 🟠 Deployed; UAT pending | Reviewed source and bindings | Preserve owner-only sharing | Orchestrator (current session) | current session | not exposed |
+| Private Sites version 4 deployment | 🟢 Deployment succeeded | Source `628e41b`; live HTTP proof remains separate | Preserve owner-only sharing | Orchestrator (current session) | current session | not exposed |
 | Website acceptance | 🔵 Accepted | Private deployment | Keep website scope separate from workflow acceptance | Orchestrator (current session) | current session | not exposed |
 | In-app browser connection and signed-in search | 🟢 Live verified | User completed ChatGPT sign-in | Preserve browser evidence; qualify agent access separately | Orchestrator (no subagent) | current session | not exposed |
 | Deployed API-key store read | 🟢 Live verified | Signed-in key page lists the existing read key | Prove Bearer HTTP access; generation and revocation remain untested | Orchestrator (no subagent) | current session | not exposed |
@@ -24,10 +24,10 @@ state.
 | Native D1 schema and empty-store baseline | 🟢 Live verified | Sites database overview and bounded row reads | Measure physical size against the documented 10 GB D1 limit | Orchestrator (no subagent) | current session | not exposed |
 | Collector implementation and secret scanning | 🟢 Integrated; 39 tests reviewed and approved | Bearer ingest contract; maintained Gitleaks | Run a representative sanitized sample | /root/collector_stream | Sol | medium |
 | Collector replay, append, backfill and resume behavior | 🟢 Local verified | Ingest idempotency and source prefix contract | Prove on the representative sample | /root/collector_stream | Sol | medium |
-| Direct HTTP skill and tools | 🟢 Locally verified | 6 plugin tests, validators and built-Workers CLI smoke | Complete private publication | Orchestrator (no subagent) | current session | not exposed |
-| HTTP-only release review | 🟢 Approved | Finished skill, MCP removal and local checks | Publish the reviewed HTTP-only source | /root/release_final_review | GPT-6 Astra | high |
+| Direct HTTP skill and tools | 🟢 Locally verified | 6 plugin tests, validators and built-Workers CLI smoke | Qualify live HTTP access after owner action | Orchestrator (no subagent) | current session | not exposed |
+| HTTP-only release review | 🟢 Approved | Finished skill, MCP removal and local checks | Preserve review evidence | /root/release_final_review | GPT-6 Astra | high |
 | Standalone HTTP skill installation | 🟢 Installed | Reviewed skill copied with byte-for-byte verification | Invoke `$pachigraph` with the read-key file path | Orchestrator (no subagent) | current session | not exposed |
-| HTTP-only source publication and deployment | 🟡 Pending | Final documentation correction and reviewed source | Commit, push and publish privately | Orchestrator (no subagent) | current session | not exposed |
+| HTTP-only source publication and deployment | 🟢 Published as version 4 | Reviewed source `628e41b`; successful private deployment | Qualify live HTTP access after owner action | Orchestrator (no subagent) | current session | not exposed |
 | Previous integrated release source | 🟢 Historical publication at `400e6da` | Completed package and final reviews for that batch | Preserve previous-release evidence | /root/matrix_stream | Luna | medium |
 | Collector and plugin package review | 🟢 Approved and published | Commits `b6927d3` and `989d1c4` pushed in `400e6da` | Preserve approval evidence | /root/package_review | Sol | medium |
 | Release final review | 🟢 Completed | Integrated source and corrected release evidence | Preserve final-review evidence | /root/release_final_review | GPT-6 Astra | high |
@@ -101,10 +101,10 @@ Planned
 Current position: the website is accepted. The user selected a skill with direct
 HTTP tools on 2026-09-06, replacing MCP. The HTTP-only source passed 66 tests,
 the production build, skill/plugin validation and the local CLI smoke. It
-is installed locally and requires source publication
-and private deployment.
-The currently deployed v3 baseline is
-`744622126d1d59e661d4d38068acf57e2c3a4f3c`. Native MCP enablement is no longer a
+is installed locally and privately deployed as version 4 from
+`628e41bab9c377fefbbc2e8fe5c756c6cdb2ac30`. Deployment
+`appgdep_6a9c3a7da18c8191968b68423fe7ebab` succeeded at
+`2026-09-05T15:51:38.952205Z`. Native MCP enablement is no longer a
 release gate; the separate HTTP gateway restriction remains, followed by sample
 verification and workflow acceptance. No personal import or daily schedule has
 started. Any gate may instead end in `Deferred / rejected`, recording the reason
@@ -125,5 +125,5 @@ Operations:     no import -> workflow accepted -> bulk import -> daily schedule
 ```
 
 The collector and API-key storage retain their existing evidence. The HTTP-only
-skill release is in verification; live HTTP proof and sample verification remain
+skill release is installed and privately deployed; live HTTP proof and sample verification remain
 pending. Historical MCP results do not define the new release requirements.

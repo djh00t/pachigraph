@@ -35,17 +35,17 @@ unaccepted pending live key access and representative-sample proof.
 |---|---|---|
 | Site storage, search and HTTP | Locally verified | 21 app tests and the built-Workers HTTP skill smoke |
 | Collector | Integrated and approved | 39 collector tests passed with Gitleaks |
-| HTTP skill | Reviewed and installed; private publication pending | 6 plugin tests; skill and plugin validators; real CLI smoke |
-| Source batch | Published | Commit `400e6da` pushed to `origin/main`; includes collector `b6927d3` and plugin `989d1c4` |
-| API-key publication | Deployed; gateway qualification blocked | Version 3 deployment succeeded; Cloudflare owner action is required |
+| HTTP skill | Reviewed, installed and privately published | 6 plugin tests; skill and plugin validators; real CLI smoke |
+| HTTP-only source | Published | Commit `628e41b` pushed to GitHub and Sites |
+| API-key publication | Deployed; gateway qualification blocked | Version 4 deployment succeeded; Cloudflare owner action is required |
 | Live agent authentication | Gateway blocked; app auth unverified | GET `/api/search` returned 403; `/api/status` was Cloudflare Error 1010 with owner action required |
 | Representative sample | Pending | No personal content imported |
 | Website acceptance | Accepted | User accepted prior website |
 | Complete workflow acceptance | Pending | Requires live key access and representative sample |
 
-The HTTP-only candidate passed 66 tests (21 app, 39 collector, 6 plugin) and
+The HTTP-only release passed 66 tests (21 app, 39 collector, 6 plugin) and
 `make build`. It removes the four MCP transport tests and adds a status-command
-test. Source publication and private deployment of this candidate are pending.
+test. Source `628e41b` is privately deployed as Sites version 4.
 
 See [feature-status.md](docs/feature-status.md) for the complete feature matrix and
 FSM milestones.

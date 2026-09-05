@@ -69,8 +69,13 @@ used. This is local application and tool evidence, not production API access.
 
 The reviewed standalone skill was installed at `~/.codex/skills/pachigraph`;
 its files match the repository source byte for byte and its command help lists
-search, fetch and status. The HTTP-only release passed independent review and still requires source
-publication and private deployment. The shipped HTTP tool reached 89.41%
+search, fetch and status. The HTTP-only release passed independent review.
+Source `628e41bab9c377fefbbc2e8fe5c756c6cdb2ac30` was pushed to GitHub and
+the Sites source repository, then privately published as version 4
+(`appgprj_6a9b93afa6788191b7b0a59358a497ce~appgver_4cd0bf60b54481919d2ce653770a53bb`).
+Deployment `appgdep_6a9c3a7da18c8191968b68423fe7ebab` succeeded at
+`2026-09-05T15:51:38.952205Z`, preserving owner-only access.
+The shipped HTTP tool reached 89.41%
 coverage under the installed coverage tooling (6 tests passed). Live Bearer HTTP access, sample proof and
 complete workflow acceptance remain pending.
 
@@ -164,8 +169,9 @@ The integrated collector and plugin changes passed review: 39 collector tests an
 plugin tests passed. The app baseline has 25 tests; integrated `make check` passed
 all 69 tests, with Codex plugin validation and `git diff --check` also passing.
 Source batch `400e6da`, including collector commit `b6927d3` and plugin commit
-`989d1c4`, was pushed to `origin/main`. These changes do not change the app
-runtime, so v3 remains the current deployment and no redeployment is required.
+`989d1c4`, was pushed to `origin/main`. That batch did not change the app
+runtime, so it retained v3 without redeployment; the later HTTP-only release
+above supersedes that deployment.
 This status snapshot records that publication and is not claimed as part of
 `400e6da`. Build checks pass with the
 known upstream Node `punycode` and experimental SQLite warnings.

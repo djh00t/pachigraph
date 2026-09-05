@@ -31,13 +31,17 @@ human acceptance. It is deliberately a table, not workflow software.
 
 ## Current platform evidence
 
-On 2026-09-05, `sites_get_site(include_mcp_connection=true)` returned:
-"Publish this Site before connecting its MCP server to Codex."
+On 2026-09-05, the Pachigraph Site was published privately at
+https://pachigraph.djh00t.chatgpt.site. Native Sites deployment reported success.
+Anonymous requests to `/api/status` and `/mcp` were rejected with HTTP 403.
 
-The Site is registered as `appgprj_6a9b93afa6788191b7b0a59358a497ce` with logical
-bindings `DB` and `FILES`. Registration alone proves neither production storage
-behavior nor native OAuth for arbitrary collector HTTP requests. There are no
-published versions, no imported personal records, and no installed scheduled job.
+The initial native MCP connection request reported that the published Site does
+not declare an MCP server. The requested `mcp` capability is now included in the
+hosting manifest for platform verification. Native authenticated access remains
+unverified until Sites supplies connection details and its OAuth flow succeeds.
+
+The Site uses logical bindings `DB` and `FILES`. No personal records have been
+imported, and no scheduled job is installed.
 
 ## External action boundaries
 

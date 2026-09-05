@@ -10,8 +10,8 @@ There is no AI processing, embedding service, or custom authorization server.
 
 ## Current release state
 
-The Site implementation passes local checks and is being published privately for
-native authentication qualification. The collector and plugin are prepared but
+The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and passes
+local checks. Native authentication qualification is in progress. The collector and plugin are prepared but
 are not included in this checkout: automatic approval review blocked their copy
 into the repository even after explicit authorization. No personal transcripts
 have been uploaded, no daily job has been installed, and user acceptance is pending.

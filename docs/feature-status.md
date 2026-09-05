@@ -18,6 +18,9 @@ state.
 | API-key migration in deployed source | 🟠 Deployed; UAT pending | Commit `744622126d1d59e661d4d38068acf57e2c3a4f3c` | Confirm live key-backed route behavior | /root/application_review | Sol | high |
 | Private Sites version 3 deployment | 🟠 Deployed; UAT pending | Reviewed source and bindings | Preserve owner-only sharing | Orchestrator (current session) | current session | not exposed |
 | Website acceptance | 🔵 Accepted | Private deployment | Keep website scope separate from workflow acceptance | Orchestrator (current session) | current session | not exposed |
+| In-app browser connection and signed-in search | 🟢 Live verified | User completed ChatGPT sign-in | Preserve browser evidence; qualify agent access separately | Orchestrator (no subagent) | current session | not exposed |
+| Deployed API-key store read | 🟢 Live verified | Signed-in key page lists the existing read key | Prove Bearer HTTP/MCP access; generation and revocation remain untested | Orchestrator (no subagent) | current session | not exposed |
+| Browser storage-status inspection | 🟠 Browser refused navigation | `/api/status` returned `ERR_BLOCKED_BY_CLIENT` | Require a permitted status/capacity inspection path | Orchestrator (no subagent) | current session | not exposed |
 | Collector implementation and secret scanning | 🟢 Integrated; 39 tests reviewed and approved | Bearer ingest contract; maintained Gitleaks | Run a representative sanitized sample | /root/collector_stream | Sol | medium |
 | Collector replay, append, backfill and resume behavior | 🟢 Local verified | Ingest idempotency and source prefix contract | Prove on the representative sample | /root/collector_stream | Sol | medium |
 | Portable agent plugin, manifests and CLI | 🟢 Integrated and approved | Bearer read contract; MCP client configuration | Prove client configuration against live keys | /root/plugin_stream | Sol | medium |

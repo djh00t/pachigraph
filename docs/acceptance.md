@@ -48,6 +48,22 @@ credential or alternate hosting has been introduced.
 
 ## Current platform evidence
 
+On 2026-09-06 (Australia/Sydney), the Codex in-app browser connected without
+installation or configuration changes. After the user signed in through ChatGPT,
+the live website showed zero conversations and source revisions. Searching for
+`pachigraph qualification` returned zero matches without an error. The API-key
+page displayed the existing read key's scope and expiry; its secret was not
+revealed, and no key was generated or revoked. This proves authenticated browser
+access and a readable deployed key store, not Bearer HTTP or MCP authentication.
+
+Direct browser navigation to `/api/status` was refused with
+`net::ERR_BLOCKED_BY_CLIENT`; the browser remained on the key page. No alternate
+request mechanism was used. Actual storage capacity remains unmeasured. A fresh
+Sites metadata check confirmed the active private version 3 with one allowed
+owner and zero external visitors. Requesting native MCP connection metadata
+returned `Sites MCP is not enabled for this Site owner`; ordinary Site metadata
+remained available. This does not establish how application Bearer requests behave.
+
 On 2026-09-05, Pachigraph was published privately at
 https://pachigraph.djh00t.chatgpt.site. Both native deployments reported success;
 the second includes `capabilities: ["mcp"]` in the hosting manifest. The access

@@ -10,22 +10,38 @@ There is no AI processing, embedding service, or custom authorization server.
 
 ## Current release state
 
-The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and passes
-local checks. **The integrated MVP is blocked, not accepted.** Sites reports that
-MCP is not enabled for this Site owner. The collector and plugin are prepared but
-are not included in this checkout: automatic approval review blocked their copy
-into the repository even after explicit authorization. No personal transcripts
-have been uploaded and no daily job has been installed.
+### API keys (local implementation)
 
-| Milestone                          | State               | Evidence                                                  |
-| ---------------------------------- | ------------------- | --------------------------------------------------------- |
-| Site storage, search, HTTP and MCP | Local verified      | 23 tests, production build and local Workers smoke pass   |
-| Collector                          | Integration blocked | Prepared implementation: 34 tests pass with real Gitleaks |
-| Plugin                             | Integration blocked | Prepared Pachigraph package: 5 tests pass                 |
-| Private Site publication           | Complete            | Published privately with the requested MCP capability     |
-| Native agent authentication        | Platform blocked    | Sites MCP is not enabled for this Site owner              |
-| Representative sample              | Pending             | No personal content imported                              |
-| User acceptance                    | Pending             | Requires the complete workflow and explicit acceptance    |
+Sign in and open `/keys` to generate or revoke an owner-scoped API key. Choose
+read access (search, fetch, status and MCP) or ingestion access, and an expiry
+between 1 and 365 days. Copy the key when generated; only its SHA-256 hash is
+stored in D1. Send it as `Authorization: Bearer <key>` to the HTTP API or `/mcp`.
+Keys cannot delete threads or manage other keys. Invalid or expired keys are
+rejected even when a browser session is present. Revocation applies on the next
+request; a request already authorized may finish.
+
+Apply the generated D1 migration as part of deployment before using this feature.
+The key generator and authentication are not yet deployed. Sites may intercept
+external requests before application authentication; live key access remains
+unverified. This implementation does not enable Sites MCP or change Site sharing.
+
+The Site is [published privately](https://pachigraph.djh00t.chatgpt.site) and passes
+local checks. **The user has accepted the current website.** The next release
+will deliver sample ingestion and agent access; that complete workflow remains
+unaccepted. The collector and plugin are now included in `collector/` and
+`plugins/pachigraph/`. The user authorized API keys instead of native Sites MCP
+OAuth. No personal transcripts have been uploaded and no daily job is installed.
+
+| Milestone | State | Evidence |
+|---|---|---|
+| Site storage, search, HTTP and MCP | Locally verified | 25 tests and Workers API-key smoke |
+| Collector | Integrated | 38 tests with Gitleaks |
+| Plugin | Integrated | Agent Plugins and Codex manifests; CLI tests |
+| API-key publication | Pending | Local checks passed |
+| Live agent authentication | Unverified | Requires gateway test after publication |
+| Representative sample | Pending | No personal content imported |
+| Website acceptance | Accepted | User accepted prior website |
+| Complete workflow acceptance | Pending | Requires sample and agent access |
 
 These are milestone states, not an FSM implementation.
 
@@ -55,7 +71,7 @@ There is no development login bypass.
 ## API contract
 
 All responses containing history use `Cache-Control: no-store`. The authenticated
-owner always comes from Sites; request bodies and query arguments cannot select it.
+owner comes from Sites sign-in or the stored API-key owner; request bodies and query arguments cannot select it.
 
 | Endpoint                     | Behavior                                                                 |
 | ---------------------------- | ------------------------------------------------------------------------ |
@@ -85,7 +101,9 @@ Ingestion accepts JSON up to 512 KiB:
 }
 ```
 
-Each batch accepts at most 100 records; each record must fit within 384 KiB. Source event identities are separate from
+Each batch accepts at most 100 records. Each record may be at most 384 KiB
+(inclusive), and source JSON supports nesting through depth 64 with the record
+root at depth zero. Source event identities are separate from
 content revision identities. Canonical content hashes and database uniqueness
 constraints make exact retries idempotent while preserving changed content as a
 new revision. Search can return older revisions; fetch returns the exact revision.
@@ -104,13 +122,12 @@ record ID, source event identity and timestamp remain usable independently.
 ## Qualification before real ingestion
 
 1. Build and test the local workflow with synthetic secret fixtures.
-2. Publish privately through Sites under the existing authorization,
-   and request its native MCP connection details.
-3. Prove native OAuth supplies the same stable owner identity for MCP and the
-   collector's authenticated HTTP requests. Browser sign-in alone is insufficient.
-   If Sites cannot provide that flow, stop and report the unsupported requirement.
-   Never substitute a Sites bypass token, browser-cookie extraction, a handwritten
-   bearer-token validator, or another hosting platform without a new decision.
+2. Publish privately through Sites under the existing authorization, including
+   the API-key migration.
+3. Generate keys through browser sign-in and prove Bearer authentication reaches
+   both MCP and collector HTTP endpoints with the same owner. Test expired,
+   revoked and wrong-scope keys. If Sites blocks requests before the application,
+   report that limitation; do not change sharing or extract browser credentials.
 4. Select a small active, archived, and long-thread sample, using the same collector
    command intended for later incremental runs. Inspect only sanitized output.
 5. Check exact replay, append, backfill, secret absence, owner isolation, deletion,
@@ -160,3 +177,12 @@ synthetic records and explicitly injected test-owner headers against loopback. I
 cannot qualify live authentication and must never be adapted to target a public
 server. The saved measurement includes actual SQLite page allocation, which can
 reuse space from prior deleted synthetic samples.
+
+## Collector and plugin
+
+See `collector/USAGE.md` for resumable import and backfill commands. Use an ingest
+API key with the collector and a separate read key with `plugins/pachigraph`.
+The plugin contains both Agent Plugins and Codex manifests plus the portable
+Agent Skill and Python CLI. Configure Bearer authentication in the MCP client;
+never commit keys into manifests. Scheduling and bulk import remain disabled
+until representative-sample acceptance.

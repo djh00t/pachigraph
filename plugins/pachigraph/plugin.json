@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pachigraph",
+  "version": "0.1.0",
+  "description": "Search and fetch cited historical Pachigraph records through a configured MCP server.",
+  "author": {"name": "djh00t"},
+  "keywords": ["history", "search", "evidence", "code-graph"]
+}

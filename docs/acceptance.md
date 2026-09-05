@@ -7,11 +7,28 @@ human acceptance. It is deliberately a table, not workflow software.
 | ------------------- | ---------------------------------------- | ---------------------------------------------------------------- | -------------------- |
 | Implementing        | Approved minimal scope                   | Collector, Site, plugin sources and focused tests                | Integration blocked  |
 | Local verified      | Integrated code                          | `make check`, production build, synthetic end-to-end checks      | Pending              |
-| Platform qualified  | Private publication authorized           | Native OAuth identity reaches both MCP and HTTP; D1/R2 available | Platform blocked     |
+| Platform qualified  | Private publication authorized           | Owner-scoped API keys reach MCP and HTTP; D1/R2 available | Platform blocked     |
 | Sample verified     | Platform qualified                       | Representative active, archived, long sample passes checks below | Pending              |
 | Awaiting acceptance | Evidence and limitations presented       | User explicitly accepts, defers, or rejects                      | Pending              |
 | Accepted            | User acceptance recorded                 | Remaining archive and daily collection may proceed as authorized | Pending              |
 | Deferred / rejected | User decision or unsupported requirement | Record reason and next decision; no bulk import                  | Available transition |
+
+## Website acceptance and next release
+
+On 2026-09-05, the user accepted the current website and explicitly set the goal
+to deliver the next release. This acceptance covers the website only; it does not
+waive authentication, sample-ingestion, safety, capacity or agent-access
+checks. The complete workflow still requires its own explicit acceptance.
+
+The next release must integrate the collector and portable plugin/skill, qualify
+standard HTTPS MCP and equivalent authenticated HTTP access, and pass a small
+active/archived/long-thread sample through the required proof below. Bulk import
+and the daily macOS schedule remain behind that acceptance gate.
+
+A fresh native Sites check during the first goal continuation returned the same
+owner-level MCP enablement error. The repository is clean at the start of that
+continuation, and both prepared packages are still present. No authorization
+server, bypass credential or alternate hosting has been introduced.
 
 ## Required proof
 
@@ -26,7 +43,7 @@ human acceptance. It is deliberately a table, not workflow software.
   source record and timestamp. Record p50/p95 and corpus size, not just pass/fail.
 - Measure actual D1 size (including FTS) before the sample and after it. Extrapolate
   against the current Sites capacity before allowing bulk ingestion.
-- Prove authenticated CLI and MCP access use the same native owner. Local tests
+- Prove authenticated CLI and MCP access use keys tied to the same signed-in owner. Local tests
   that inject an owner do not satisfy this check.
 
 ## Current platform evidence
@@ -103,3 +120,40 @@ because automatic approval review rejected that integration action.
 - Oversized records above 384 KiB are explicit, persistent gaps. The collector
   exits nonzero on unresolved gaps. Full archive acceptance requires zero gaps;
   this MVP cannot yet claim complete ingestion of an arbitrary archive.
+
+## API-key authentication decision
+
+The user explicitly requested an API-key generator instead of Sites MCP enablement.
+The local implementation adds browser-managed, hashed, expiring and revocable
+read or ingest keys. Standard MCP and HTTP resolve the owner from the key record.
+This supersedes the native OAuth requirement for agent credentials; browser key
+management still requires native Sites sign-in. Live deployment and ingress
+qualification remain pending. No Site sharing or platform enablement was changed.
+
+### Local API-key runtime proof
+
+On 2026-09-05, `python3 tests/local-api-keys.py` passed against the built Workers
+runtime at `127.0.0.1:8787`, with all three D1 migrations applied locally. It
+generated read and ingest keys through a synthetic browser identity, then used
+Bearer-only requests for ingest, duplicate replay, search, fetch, MCP initialize,
+tool listing and search. Wrong-scope access was rejected. Revocation caused both
+HTTP and MCP requests to return 401. Synthetic keys and source records were
+removed afterward; the local server was stopped. Credentials were not printed.
+
+This verifies route composition with D1/R2, not production Sites authentication
+or gateway behavior. The test is loopback-only and must not be adapted to inject
+trusted browser identity headers against production.
+
+| Next-release milestone | State |
+|---|---|
+| Current website | User-accepted |
+| API-key generator and HTTP/MCP integration | Locally verified |
+| Collector and plugin integration | Integrated on 2026-09-06 |
+| Published Bearer-key access | Unverified |
+| Representative personal sample | Pending |
+| Complete workflow acceptance | Pending |
+
+On 2026-09-06, following the user's confirmation of full access, package
+integration succeeded. The earlier approval restriction is historical; the
+collector and plugin are now present in the repository. API-key live access
+and representative-sample acceptance remain pending.

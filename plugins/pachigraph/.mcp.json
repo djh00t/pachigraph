@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "pachigraph": {
-      "type": "http",
-      "url": "https://pachigraph.djh00t.chatgpt.site/mcp"
-    }
-  }
-}

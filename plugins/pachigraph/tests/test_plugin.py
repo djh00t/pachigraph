@@ -120,6 +120,12 @@ class PluginTests(unittest.TestCase):
         server = mcp["mcpServers"]["pachigraph"]
         self.assertEqual(server, {"type": "streamable-http", "url": "https://pachigraph.djh00t.chatgpt.site/mcp"})
 
+        codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
+        self.assertNotIn("mcpServers", codex)
+        self.assertFalse((ROOT / ".mcp.json").exists())
+        self.assertEqual(codex["interface"]["capabilities"], ["Read"])
+        self.assertEqual(codex["interface"]["defaultPrompt"], ["Find relevant evidence in my Pachigraph history."])
+
 
 if __name__ == "__main__":
     unittest.main()

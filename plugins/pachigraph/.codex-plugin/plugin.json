@@ -6,14 +6,13 @@
     "name": "djh00t"
   },
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Pachigraph",
     "shortDescription": "Find evidence in your Codex history.",
     "longDescription": "Search sanitized historical records and fetch their original citations.",
     "developerName": "djh00t",
     "category": "Productivity",
-    "capabilities": [],
-    "defaultPrompt": "Find relevant evidence in my Pachigraph history."
+    "capabilities": ["Read"],
+    "defaultPrompt": ["Find relevant evidence in my Pachigraph history."]
   }
 }

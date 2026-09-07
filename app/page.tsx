@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getHistory } from '../db';
-import { requireChatGPTUser, chatGPTSignOutPath } from './chatgpt-auth';
+import { requireUser } from './auth';
 
 export const dynamic = 'force-dynamic';
 type Params = { q?: string; id?: string };
@@ -14,7 +14,7 @@ export default async function Page({
 async function HistoryPage({ params }: { params: Params }) {
   const q = typeof params.q === 'string' ? params.q.trim().slice(0, 256) : '';
   const id = typeof params.id === 'string' ? params.id : '';
-  const user = await requireChatGPTUser('/?' + new URLSearchParams({ q, id }));
+  const user = await requireUser();
   const history = getHistory();
   const status = await history.status(user.userId);
   const results = q ? (await history.search(user.userId, q)).results : [];
@@ -34,9 +34,9 @@ async function HistoryPage({ params }: { params: Params }) {
         <Link className="wordmark" href="/">
           Pachigraph <span>PRIVATE ARCHIVE</span>
         </Link>
-        <a className="muted" href={chatGPTSignOutPath()} target="_top">
+        <Link className="muted" href="/logout" prefetch={false} target="_top">
           Sign out
-        </a>
+        </Link>
       </header>
       <section className="intro">
         <p className="eyebrow">THE ELEPHANT THAT NEVER FORGETS</p>

@@ -223,3 +223,40 @@ integration succeeded. The earlier approval restriction is historical; the
 collector and plugin are now present in the repository. API-key live access
 and representative-sample acceptance remain pending. The live gateway block does
 not establish an application-key failure.
+
+
+## Kubernetes migration — 2026-09-07
+
+The user requested migration of the site and MCP to dev01 Kubernetes through
+Flux. Application source stays in Pachigraph; operational manifests belong to
+code_pipeline issue #710. Existing PostgreSQL and AWS credentials were discovered
+without printing secret values. No MinIO service or dedicated Pachigraph bucket
+was found. The new runtime uses a separate PostgreSQL schema and private S3
+objects. Browser identity changes to verified Keycloak access tokens and an
+explicit subject allowlist. Source hashes, timestamps and owner boundaries remain
+part of the contract. No automatic migration of Sites owner identities or API
+keys is authorized by this runtime change.
+
+Focused auth/MCP verification passed nine tests covering signed identity, expiry,
+issuer/audience, allowlist, spoofed headers, actual SDK tools and transport errors.
+Storage, whole-application build and live deployment evidence remain pending.
+No personal transcript content was read or uploaded; scheduling remains disabled.
+
+Integrated local validation now passes `make check`: 32 Node tests, 39 collector
+tests and six plugin tests (77 total), with TypeScript and lint clean. Production
+`make build` passes and produces a 73 MiB standalone directory. The built-server
+smoke verifies startup/readiness, signed JWT key creation, read scope, actual SDK
+MCP tools, spoofed-header denial and revocation using a disposable PostgreSQL
+database. The temporary database and server are removed afterward. The smoke's
+S3 endpoint is a synthetic HeadBucket probe; it is not live S3 proof.
+
+Flux app and gateway manifests render locally. The immutable image contract
+remains intentionally blocked until the build is published and its actual digest
+is pinned. Local Docker inspection timed out and was terminated; container
+validation is delegated to the application CI workflow, not claimed locally.
+
+Independent Astra/high review found two ingress integration defects: missing
+trusted forwarded HTTPS origin configuration and missing browser OIDC routing for
+`/api/thread`. Both are corrected. The built-server smoke reproduced key creation
+HTTP 403 before the trusted-host setting and passed with it. Flux contract checks
+now assert the explicit trusted host and browser deletion path.

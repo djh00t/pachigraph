@@ -10,7 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-DEFAULT_BASE_URL = "https://pachigraph.djh00t.chatgpt.site"
+DEFAULT_BASE_URL = "https://pachigraph.e164sip.com"
 
 
 class NoRedirect(HTTPRedirectHandler):

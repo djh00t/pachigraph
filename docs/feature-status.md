@@ -1,5 +1,21 @@
 # Pachigraph feature status
 
+## Kubernetes migration — 2026-09-07
+
+The following work supersedes the Sites runtime. Historical evidence below does
+not qualify the new deployment.
+
+| Work | State | Owner | Model / reasoning |
+| --- | --- | --- | --- |
+| Signed Keycloak identity and read-only MCP | 🟢 Focused checks: 9 tests, lint and strict types | k8s_auth_mcp | Sol / high |
+| PostgreSQL and S3 storage | 🟢 13 real PostgreSQL and 4 S3-command tests | k8s_storage | Sol / high |
+| Standalone image and Flux configuration | 🟢 Build and standalone smoke; Flux image pin pending | Primary agent | Current session / not exposed |
+| Kubernetes live authentication and storage | 🟡 Not deployed or qualified | Primary agent | Current session / not exposed |
+| Personal import and daily schedule | ⏸️ Await explicit workflow acceptance | Unassigned | — |
+
+## Historical Sites release
+
+
 Status is current at 2026-09-06. `🟢` is complete and evidenced, `🔵` is
 accepted, `🟠` is deployed or implemented but unverified at the live boundary,
 `🟡` is pending, and `⏸️` is deferred. A pending item is not a failure. Historical

@@ -23,8 +23,8 @@ jobs:
       PACHIGRAPH_TEST_DATABASE_URL: postgres://postgres:synthetic-ci-password@127.0.0.1:5432/pachigraph_test_ci
       PACHIGRAPH_TEST_DATABASE_NAME: pachigraph_test_ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: '24'
           cache: npm

@@ -260,3 +260,12 @@ trusted forwarded HTTPS origin configuration and missing browser OIDC routing fo
 `/api/thread`. Both are corrected. The built-server smoke reproduced key creation
 HTTP 403 before the trusted-host setting and passed with it. Flux contract checks
 now assert the explicit trusted host and browser deletion path.
+
+The added non-root/read-only container smoke exposed a packaging defect before
+deployment: Vinext copied the MCP SDK's nested CommonJS package metadata and
+omitted `zod-to-json-schema`. The SDK now uses native bundling instead of
+externalization. The smoke copies standalone output outside the repository so
+parent `node_modules` cannot mask missing runtime dependencies; this reproduced
+the failure and passed after the fix. The earlier image from source `93ae7ac` is
+not a deployment candidate. Final image and container qualification are recorded
+in the application PR and Flux pin. All 77 local checks pass after this repair.

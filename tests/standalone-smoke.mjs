@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -65,6 +67,8 @@ const applicationEnvironment = {
 };
 const image = process.env.PACHIGRAPH_SMOKE_IMAGE;
 const containerName = `pachigraph-smoke-${port}`;
+const isolatedDirectory = mkdtempSync(join(tmpdir(), 'pachigraph-smoke-'));
+cpSync(resolve('dist/standalone'), isolatedDirectory, { recursive: true });
 const child = spawn(
   image ? 'docker' : process.execPath,
   image
@@ -92,7 +96,7 @@ const child = spawn(
       ]
     : ['server.mjs'],
   {
-    cwd: resolve('dist/standalone'),
+    cwd: isolatedDirectory,
     env: { ...process.env, ...applicationEnvironment },
     stdio: ['ignore', 'ignore', 'pipe'],
   },
@@ -172,6 +176,18 @@ try {
   console.log(
     'Standalone smoke passed: readiness, JWT, scoped key, SDK MCP, revocation',
   );
+} catch (error) {
+  let diagnostic = stderr;
+  const database = new URL(process.env.DATABASE_URL);
+  for (const value of [
+    process.env.DATABASE_URL,
+    database.password,
+    decodeURIComponent(database.password),
+  ]) {
+    if (value) diagnostic = diagnostic.replaceAll(value, '[redacted]');
+  }
+  console.error(diagnostic);
+  throw error;
 } finally {
   if (keyId)
     await request(`/api/keys?id=${keyId}`, token, 'DELETE').catch(() => {});
@@ -180,6 +196,7 @@ try {
   const force = setTimeout(() => child.kill('SIGKILL'), 5000);
   await exited;
   clearTimeout(force);
+  rmSync(isolatedDirectory, { recursive: true, force: true });
   if (image) {
     try {
       execFileSync('docker', ['rm', '--force', containerName], {

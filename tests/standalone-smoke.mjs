@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
@@ -14,6 +14,10 @@ assert.match(
 assert.equal(
   process.env.DATABASE_URL,
   process.env.PACHIGRAPH_TEST_DATABASE_URL,
+);
+assert.equal(
+  new URL(process.env.DATABASE_URL).pathname,
+  `/${process.env.PACHIGRAPH_TEST_DATABASE_NAME}`,
 );
 const { publicKey, privateKey } = await generateKeyPair('RS256');
 const jwk = { ...(await exportJWK(publicKey)), kid: 'smoke', alg: 'RS256' };
@@ -45,24 +49,54 @@ const token = await new SignJWT({ name: 'Synthetic owner' })
   .setIssuedAt()
   .setExpirationTime('5m')
   .sign(privateKey);
-const child = spawn(process.execPath, ['server.mjs'], {
-  cwd: resolve('dist/standalone'),
-  env: {
-    ...process.env,
-    HOST: '127.0.0.1',
-    PORT: String(port),
-    VINEXT_TRUSTED_HOSTS: 'pachigraph.test',
-    S3_BUCKET: 'synthetic',
-    S3_ENDPOINT: dependencyUrl,
-    S3_FORCE_PATH_STYLE: 'true',
-    AWS_ACCESS_KEY_ID: 'synthetic',
-    AWS_SECRET_ACCESS_KEY: 'synthetic',
-    PACHIGRAPH_OIDC_ISSUER: dependencyUrl,
-    PACHIGRAPH_OIDC_JWKS_URL: `${dependencyUrl}/jwks`,
-    PACHIGRAPH_ALLOWED_SUBJECTS: 'standalone-smoke',
+const applicationEnvironment = {
+  DATABASE_URL: process.env.DATABASE_URL,
+  HOST: '127.0.0.1',
+  PORT: String(port),
+  VINEXT_TRUSTED_HOSTS: 'pachigraph.test',
+  S3_BUCKET: 'synthetic',
+  S3_ENDPOINT: dependencyUrl,
+  S3_FORCE_PATH_STYLE: 'true',
+  AWS_ACCESS_KEY_ID: 'synthetic',
+  AWS_SECRET_ACCESS_KEY: 'synthetic',
+  PACHIGRAPH_OIDC_ISSUER: dependencyUrl,
+  PACHIGRAPH_OIDC_JWKS_URL: `${dependencyUrl}/jwks`,
+  PACHIGRAPH_ALLOWED_SUBJECTS: 'standalone-smoke',
+};
+const image = process.env.PACHIGRAPH_SMOKE_IMAGE;
+const containerName = `pachigraph-smoke-${port}`;
+const child = spawn(
+  image ? 'docker' : process.execPath,
+  image
+    ? [
+        'run',
+        '--rm',
+        '--name',
+        containerName,
+        '--network',
+        'host',
+        '--read-only',
+        '--user',
+        '1000:1000',
+        '--cap-drop',
+        'ALL',
+        '--security-opt',
+        'no-new-privileges',
+        '--tmpfs',
+        '/tmp:rw,nosuid,size=64m',
+        ...Object.keys(applicationEnvironment).flatMap((name) => [
+          '--env',
+          name,
+        ]),
+        image,
+      ]
+    : ['server.mjs'],
+  {
+    cwd: resolve('dist/standalone'),
+    env: { ...process.env, ...applicationEnvironment },
+    stdio: ['ignore', 'ignore', 'pipe'],
   },
-  stdio: ['ignore', 'ignore', 'pipe'],
-});
+);
 let stderr = '';
 child.stderr.on('data', (part) => {
   stderr = (stderr + part).slice(-4000);
@@ -146,10 +180,24 @@ try {
   const force = setTimeout(() => child.kill('SIGKILL'), 5000);
   await exited;
   clearTimeout(force);
+  if (image) {
+    try {
+      execFileSync('docker', ['rm', '--force', containerName], {
+        stdio: 'ignore',
+      });
+    } catch {
+      /* --rm already removes a cleanly stopped container. */
+    }
+  }
   await new Promise((done) => dependencies.close(done));
   if (child.exitCode !== 0)
     console.error(
       'Standalone failed; inspect locally with protected logs. Stderr bytes:',
       stderr.length,
     );
+  assert.equal(
+    child.exitCode,
+    0,
+    'Application must stop cleanly after SIGTERM',
+  );
 }

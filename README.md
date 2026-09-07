@@ -41,6 +41,8 @@ Run `make check`, `make build`, then `npm start`. Tests requiring PostgreSQL use
 production with tests. SQL migrations are ordered, transactionally serialized,
 and hash checked. Readiness checks PostgreSQL and S3; `/health` checks the server.
 The production container runs without root or a writable application filesystem.
+CI runs the same authentication smoke against both the standalone output and
+the container with a read-only filesystem, dropped capabilities and UID 1000.
 
 ## Identity and API keys
 

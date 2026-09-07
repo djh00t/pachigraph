@@ -42,3 +42,7 @@ jobs:
       - run: make build
       - run: node tests/standalone-smoke.mjs
       - run: docker build --tag pachigraph:check .
+      - name: Smoke the non-root read-only container
+        env:
+          PACHIGRAPH_SMOKE_IMAGE: pachigraph:check
+        run: node tests/standalone-smoke.mjs

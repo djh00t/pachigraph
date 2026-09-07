@@ -5,7 +5,7 @@ the Agent Plugins 1.0 and Codex layouts, and can also be installed as a standalo
 skill. No MCP server registration is required.
 
 Generate a read key from the signed-in
-[`/keys`](https://pachigraph.djh00t.chatgpt.site/keys) page.
+[`/keys`](https://pachigraph.e164sip.com/keys) page.
 
 ## Install the skill
 
@@ -38,6 +38,14 @@ The CLI uses only Python's standard library, rejects redirects, and accepts
 plain HTTP only for loopback testing.
 
 The commands call `/api/search`, `/api/fetch`, and `/api/status` with the read
-key. `status.text_bytes` measures indexed text only, not allocated D1 storage.
+key. `status.text_bytes` measures indexed text only, not allocated PostgreSQL storage.
 The collector retains its separate ingest key. Live HTTP gateway qualification
-is still required; installing the skill does not change Sites access controls.
+is still required; installing the skill does not change ingress access controls.
+
+## MCP clients
+
+The Kubernetes application also serves Streamable HTTP at
+`https://pachigraph.e164sip.com/mcp` with the same read key in an Authorization
+Bearer header. It exposes `search`, `fetch` and `status`. Store the header using
+your client's secret facility; the portable skill manifests remain HTTP-only.
+The new endpoint requires deployment and live qualification before use.

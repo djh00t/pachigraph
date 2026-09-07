@@ -19,7 +19,7 @@ python3 /absolute/skill-directory/scripts/query.py --token-file /absolute/key-fi
 python3 /absolute/skill-directory/scripts/query.py --token-file /absolute/key-file status
 ```
 
-The default server is `https://pachigraph.djh00t.chatgpt.site`. Use `--base-url`
+The default server is `https://pachigraph.e164sip.com`. Use `--base-url`
 only for a user-configured deployment or an explicitly local test. Redirects are
 rejected, and non-loopback servers require HTTPS.
 

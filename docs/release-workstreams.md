@@ -1,3 +1,10 @@
+# Current Kubernetes workstream
+
+The 2026-09-07 migration restores read-only MCP alongside the HTTP skill and
+replaces Sites storage/auth with PostgreSQL, S3 and verified Keycloak identity.
+See [current status](feature-status.md) and [acceptance](acceptance.md). The
+following records describe earlier releases and do not qualify Kubernetes.
+
 # Release workstreams
 
 The current work replaces MCP with the existing skill's direct HTTP tools,

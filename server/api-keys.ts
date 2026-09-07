@@ -1,65 +1,77 @@
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import type { Pool } from 'pg';
 import { checkOrigin, fail, readJSON, safeResponse } from './http.ts';
 
-export function createKeys(db: D1Database) {
-  async function hash(key: string) {
-    const bytes = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(key),
-    );
-    return Array.from(new Uint8Array(bytes), (b) =>
-      b.toString(16).padStart(2, '0'),
-    ).join('');
-  }
+function hash(key: string) {
+  return createHash('sha256').update(key).digest('hex');
+}
+
+export function createKeys(pool: Pool) {
   return {
     async resolve(request: Request, browserOwner: string | null) {
       const authorization = request.headers.get('authorization');
       if (authorization === null) return browserOwner;
+      if (browserOwner && !authorization.startsWith('Bearer pg_'))
+        return browserOwner;
       if (!/^Bearer pg_[a-f0-9]{64}$/.test(authorization)) fail(401);
-      const row = await db
-        .prepare(
-          'SELECT owner_id, scope FROM api_keys WHERE digest = ? AND expires_at > ?',
-        )
-        .bind(await hash(authorization.slice(7)), Date.now())
-        .first<{ owner_id: string; scope: string }>();
+      const result = await pool.query<{ owner_id: string; scope: string }>(
+        `SELECT owner_id, scope FROM pachigraph.api_keys
+         WHERE digest = $1 AND expires_at > $2`,
+        [hash(authorization.slice(7)), Date.now()],
+      );
+      const row = result.rows[0];
       if (!row) fail(401);
       const path = new URL(request.url).pathname;
       const allowed =
         row.scope === 'read'
-          ? ['/api/search', '/api/fetch', '/api/status'].includes(path) &&
-            request.method === 'GET'
+          ? (['/api/search', '/api/fetch', '/api/status'].includes(path) &&
+              request.method === 'GET') ||
+            (path === '/mcp' && request.method === 'POST')
           : row.scope === 'ingest' &&
             path === '/api/ingest' &&
             request.method === 'POST';
       if (!allowed) fail(403);
       return row.owner_id;
     },
+
     manage(request: Request, owner: string | null) {
       return safeResponse(async () => {
-        if (!owner || request.headers.has('authorization')) fail(401);
+        if (
+          !owner ||
+          request.headers.get('authorization')?.startsWith('Bearer pg_')
+        ) {
+          fail(401);
+        }
         checkOrigin(request);
         if (request.method === 'GET') {
-          return (
-            await db
-              .prepare(
-                'SELECT id, scope, expires_at FROM api_keys WHERE owner_id = ? ORDER BY expires_at DESC',
-              )
-              .bind(owner)
-              .all()
-          ).results;
+          const result = await pool.query<{
+            id: string;
+            scope: string;
+            expires_at: string;
+          }>(
+            `SELECT id, scope, expires_at FROM pachigraph.api_keys
+             WHERE owner_id = $1 ORDER BY expires_at DESC`,
+            [owner],
+          );
+          return result.rows.map((row) => ({
+            ...row,
+            expires_at: Number(row.expires_at),
+          }));
         }
         if (request.method === 'DELETE') {
-          await db
-            .prepare('DELETE FROM api_keys WHERE owner_id = ? AND id = ?')
-            .bind(owner, new URL(request.url).searchParams.get('id') ?? '')
-            .run();
+          await pool.query(
+            'DELETE FROM pachigraph.api_keys WHERE owner_id = $1 AND id::text = $2',
+            [owner, new URL(request.url).searchParams.get('id') ?? ''],
+          );
           return { revoked: true };
         }
         if (request.method !== 'POST') fail(405);
         if (
           request.headers.get('content-type')?.split(';')[0] !==
           'application/json'
-        )
+        ) {
           fail(415);
+        }
         const input = (await readJSON(request)) as {
           scope?: string;
           days?: number;
@@ -70,21 +82,18 @@ export function createKeys(db: D1Database) {
           !Number.isInteger(input.days) ||
           input.days! < 1 ||
           input.days! > 365
-        )
+        ) {
           fail(400);
-        const key =
-          'pg_' +
-          Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
-            b.toString(16).padStart(2, '0'),
-          ).join('');
-        const id = crypto.randomUUID();
+        }
+        const key = `pg_${randomBytes(32).toString('hex')}`;
+        const id = randomUUID();
         const expires_at = Date.now() + input.days! * 86400000;
-        await db
-          .prepare(
-            'INSERT INTO api_keys (id, owner_id, digest, scope, expires_at) VALUES (?, ?, ?, ?, ?)',
-          )
-          .bind(id, owner, await hash(key), input.scope, expires_at)
-          .run();
+        await pool.query(
+          `INSERT INTO pachigraph.api_keys
+             (id, owner_id, digest, scope, expires_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [id, owner, hash(key), input.scope, expires_at],
+        );
         return { id, key, scope: input.scope, expires_at };
       });
     },

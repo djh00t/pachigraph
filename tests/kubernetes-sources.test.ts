@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const source = new URL('../infra/k8s/', import.meta.url);
 const read = (path: string) =>
   JSON.parse(readFileSync(new URL(path, source), 'utf8'));
-const workload = read('app.json').items;
-const network = read('network-policy.json');
-const routes = read('route.json').items;
+const workload = read('workload/app.json').items;
+const network = read('workload/network-policy.json');
+const routes = read('routes/route.json').items;
 const deployment = workload.find(
   (resource: { kind: string }) => resource.kind === 'Deployment',
 );
@@ -41,15 +44,12 @@ test('source layers contain exactly the existing six resource identities', () =>
   );
   assert.deepEqual(read('Kustomization').resources, ['workload', 'routes']);
   const workloads = read('workload/Kustomization');
-  assert.deepEqual(workloads.resources, [
-    '../app.json',
-    '../network-policy.json',
-  ]);
+  assert.deepEqual(workloads.resources, ['app.json', 'network-policy.json']);
   assert.deepEqual(workloads.labels, [
     { includeSelectors: true, pairs: labels },
   ]);
   const routeLayer = read('routes/Kustomization');
-  assert.deepEqual(routeLayer.resources, ['../route.json']);
+  assert.deepEqual(routeLayer.resources, ['route.json']);
   assert.equal(routeLayer.labels, undefined);
 });
 
@@ -176,3 +176,64 @@ test('browser OIDC and separately authenticated API routes retain current bounda
   assert.deepEqual(policy.oidc.scopes, ['openid', 'profile', 'email']);
   assert.equal(policy.basicAuth, undefined);
 });
+
+const kubectlAvailable = !spawnSync('kubectl', ['version', '--client=true'], {
+  encoding: 'utf8',
+  timeout: 30_000,
+}).error;
+
+test(
+  'default native workload, route and aggregate rendering preserve source bytes',
+  {
+    skip: !kubectlAvailable,
+  },
+  () => {
+    const root = fileURLToPath(source);
+    const snapshot = (directory: string): Map<string, Buffer> => {
+      const files = new Map<string, Buffer>();
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          for (const [name, content] of snapshot(path))
+            files.set(name, content);
+        } else files.set(path, readFileSync(path));
+      }
+      return files;
+    };
+    const before = snapshot(root);
+    for (const [directory, kinds] of [
+      ['workload', ['Deployment', 'Service', 'NetworkPolicy']],
+      ['routes', ['HTTPRoute', 'HTTPRoute', 'SecurityPolicy']],
+      [
+        '.',
+        [
+          'Deployment',
+          'Service',
+          'NetworkPolicy',
+          'HTTPRoute',
+          'HTTPRoute',
+          'SecurityPolicy',
+        ],
+      ],
+    ] as const) {
+      const result = spawnSync(
+        'kubectl',
+        ['kustomize', join(root, directory)],
+        {
+          encoding: 'utf8',
+          timeout: 30_000,
+        },
+      );
+      assert.equal(
+        result.status,
+        0,
+        'default native source render must succeed',
+      );
+      const actualKinds = [...result.stdout.matchAll(/^kind: (\w+)$/gm)].map(
+        (match) => match[1],
+      );
+      assert.deepEqual(actualKinds.sort(), [...kinds].sort());
+    }
+    assert.deepEqual(snapshot(root), before);
+  },
+);

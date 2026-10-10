@@ -8,3 +8,10 @@
 6. Run relevant repository make check and independent review; publish one-file commits and main-targeted PR; monitor exact-head CI without approving/merging/deploying.
 
 Rollback removes preparation artifacts only; no live inventory changes. Any later live rollback follows the protected central ownership-transfer procedure.
+
+## Native repair plan
+
+1. Record source head/lease/prerequisites on issue2 and notify Steve before edits.
+2. Move canonical files into self-contained child entrypoints and update test consumers, preserving raw bytes and root aggregate.
+3. Prove native default workload/routes/aggregate rendering and full frozen six-object parity using existing tools; no dependency installation or unsafe database test target.
+4. Update docs/evaluation; run relevant checks and independent review; update existing PR4 through one-file commits and monitor exact-head CI/candidate publication separately. Keep all live gates open.

@@ -1,0 +1,15 @@
+# Source-owned Kubernetes preparation
+
+Issue #2, central epic #878/workstream #882 wave4. Source base `a0191cf61204a7486348a0d0924a836fe03bbc41`; approved central main `3a9299607128bd633bcd7e39ed25b6dcc78da8a7`. Exact lease `c1c7baf6-e599-4d30-8d4e-b700be4797ba`. Owned scope: `infra/k8s/`, this package, `tests/kubernetes-sources.test.ts` and `docs/kubernetes-source-migration.md`. Preserve unrelated primary checkout edits.
+
+Prepare Pachigraph API/browser Deployment, Service, NetworkPolicy and routes/policy. Workload entrypoints reproduce complete existing dev01 root objects including label/selector transformations; separate route entrypoints reproduce raw gateway-child objects without root labels. No new namespaces, Secret files, one-off Jobs, storage, image versions, provider scope, schedule/activation, ports or access grants. Raw references to centrally managed encrypted credentials remain unchanged; private source access and binding qualification are not established here. Existing releases remain authoritative until accepted native Flux cutover.
+
+Pachigraph source uses native Kubernetes JSON manifests and JSON-formatted, native extensionless `Kustomization` files (valid YAML), leveraging existing Node/JSON tooling without new YAML dependencies. Preserve both API/browser routes, current browser OIDC and application API-auth boundaries and the Envoy-namespace-only NetworkPolicy, with unchanged pod behavior and database/mount references.
+
+No workflow, dependency, code/application API or release-lock contract change. Acceptance: full source/central current-owner rendered equality, parsed object-level regression tests, documented entrypoints/cutover limits, repository changed-scope make check, independent review, atomic main-targeted PR/CI. Live source access, pruning protection, UID/recovery/30-minute/two-interval qualification, reverse handoff and operator acceptance are separate human-gated stages. Source-only completion cannot satisfy wave4 or the cluster goal.
+
+Existing codex/main image CI may publish a SHA-tagged candidate during normal branch delivery. This stage does not alter that workflow, update the pinned runtime digest, create a service upgrade or deploy the candidate. The browser gateway policy has no CIDR authorization block; API bearer/allowed-subject validation remains application-owned.
+
+## Native child-layout repair
+
+Repair source preparation from head `4510d3c1458a12ae20545b6e98de7762400845ed` under lease `ff9a4507-1d90-4c23-8ae6-2a5d0d3d252d`. Move canonical app/network-policy JSON into workload/ and route JSON into routes/, preserving bytes and all six full approved objects. Keep root aggregate/transformations unchanged. Native source rendering must use default restrictions; historical frozen central rendering alone may retain its explicit bypass. Update path consumers, native/source-immutability regressions and operational evidence. No dependency/workflow/database/credential/runtime changes; any existing CI candidate publication stays unapproved and undeployed.

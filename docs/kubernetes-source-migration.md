@@ -9,7 +9,7 @@ It preserves current objects; it does not deploy or transfer live ownership.
 `infra/k8s/workload/` renders the existing Pachigraph Deployment, Service and
 NetworkPolicy with current dev01 root labels/selectors. `infra/k8s/routes/`
 renders the browser/API HTTPRoutes and existing browser OIDC policy with their
-raw gateway-child labels. The parent is a combined offline preview.
+raw gateway-child labels. Canonical manifests live at `workload/app.json`, `workload/network-policy.json` and `routes/route.json`. Child entrypoints load only local files; the parent references both directories as a combined offline preview under native default load restrictions.
 
 The manifests use native Kubernetes JSON. JSON-formatted, extensionless
 `Kustomization` files are a standard Kustomize filename and valid YAML; existing
@@ -38,8 +38,8 @@ application data recovery. No authenticated live probe is invoked here.
 
 ```bash
 node --test tests/kubernetes-sources.test.ts
-kubectl kustomize infra/k8s/workload --load-restrictor=LoadRestrictionsNone
-kubectl kustomize infra/k8s/routes --load-restrictor=LoadRestrictionsNone
+kubectl kustomize infra/k8s/workload
+kubectl kustomize infra/k8s/routes
 ```
 
 The one-time `.specify/specs/2-pachigraph-source-bundles/verify_central_baseline.py`
@@ -50,7 +50,7 @@ This is shared execution-stage verification, not a new Pachigraph dependency.
 The frozen Git object must exist locally; no repository fetch, cluster/provider
 or memory API call occurs. Secret bodies are not parsed or decrypted and inline
 configuration is not printed. Permanent tests use only Node built-ins and
-current JSON; they require no historical/external checkout or kubectl.
+current JSON; they require no historical/external checkout. The native regression skips if kubectl is unavailable, but native rendering is mandatory stage evidence. Only the frozen central baseline render uses the explicit historical load-restriction bypass.
 
 ## Release and ownership gates
 
@@ -70,7 +70,7 @@ ownership without deletion; activate approved sources; verify unique ownership,
 unchanged endpoints/access/templates/data; observe two reconciliation intervals
 and 30 minutes of safe runtime qualification; demonstrate reverse handoff and
 obtain operator acceptance. The installed controller's artifact/path builder
-must be verified for parent-file entrypoints and the native Kustomization name.
+must be verified for the self-contained entrypoints and native Kustomization name.
 
 Preparation rollback removes only these files. Live rollback reverses protected
 ownership in stages; a simple reference revert must not leave competing owners.

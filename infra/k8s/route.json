@@ -1,0 +1,149 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "gateway.networking.k8s.io/v1",
+      "kind": "HTTPRoute",
+      "metadata": {
+        "name": "pachigraph-browser",
+        "namespace": "codex-specops"
+      },
+      "spec": {
+        "parentRefs": [
+          {
+            "name": "codex-specops-public",
+            "namespace": "codex-specops",
+            "sectionName": "pachigraph-https"
+          }
+        ],
+        "hostnames": [
+          "pachigraph.e164sip.com"
+        ],
+        "rules": [
+          {
+            "matches": [
+              {
+                "path": {
+                  "type": "PathPrefix",
+                  "value": "/"
+                }
+              },
+              {
+                "path": {
+                  "type": "PathPrefix",
+                  "value": "/api/keys"
+                }
+              },
+              {
+                "path": {
+                  "type": "PathPrefix",
+                  "value": "/api/thread"
+                }
+              }
+            ],
+            "backendRefs": [
+              {
+                "name": "pachigraph",
+                "port": 80
+              }
+            ],
+            "timeouts": {
+              "request": "60s",
+              "backendRequest": "55s"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "gateway.networking.k8s.io/v1",
+      "kind": "HTTPRoute",
+      "metadata": {
+        "name": "pachigraph-api",
+        "namespace": "codex-specops"
+      },
+      "spec": {
+        "parentRefs": [
+          {
+            "name": "codex-specops-public",
+            "namespace": "codex-specops",
+            "sectionName": "pachigraph-https"
+          }
+        ],
+        "hostnames": [
+          "pachigraph.e164sip.com"
+        ],
+        "rules": [
+          {
+            "matches": [
+              {
+                "path": {
+                  "type": "PathPrefix",
+                  "value": "/api"
+                }
+              },
+              {
+                "path": {
+                  "type": "PathPrefix",
+                  "value": "/mcp"
+                }
+              }
+            ],
+            "backendRefs": [
+              {
+                "name": "pachigraph",
+                "port": 80
+              }
+            ],
+            "timeouts": {
+              "request": "60s",
+              "backendRequest": "55s"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "gateway.envoyproxy.io/v1alpha1",
+      "kind": "SecurityPolicy",
+      "metadata": {
+        "name": "pachigraph-oidc",
+        "namespace": "codex-specops"
+      },
+      "spec": {
+        "targetRefs": [
+          {
+            "group": "gateway.networking.k8s.io",
+            "kind": "HTTPRoute",
+            "name": "pachigraph-browser"
+          }
+        ],
+        "oidc": {
+          "provider": {
+            "issuer": "https://sso.e164sip.com/realms/codex-specops",
+            "backendRefs": [
+              {
+                "name": "keycloak",
+                "port": 80
+              }
+            ]
+          },
+          "clientID": "pachigraph",
+          "clientSecret": {
+            "name": "pachigraph"
+          },
+          "redirectURL": "https://pachigraph.e164sip.com/oauth2/callback",
+          "logoutPath": "/logout",
+          "cookieDomain": "pachigraph.e164sip.com",
+          "scopes": [
+            "openid",
+            "profile",
+            "email"
+          ],
+          "forwardAccessToken": true
+        }
+      }
+    }
+  ]
+}

@@ -25,13 +25,17 @@ ROUTES = [
 ]
 
 
-def render(path: Path) -> dict:
+def render(path: Path, *, historical_central: bool = False) -> dict:
     """Local Kustomize output stays in memory; Secret bodies are not parsed."""
+    command = ["kubectl", "kustomize", str(path)]
+    if historical_central:
+        command.append("--load-restrictor=LoadRestrictionsNone")
     text = subprocess.run(
-        ["kubectl", "kustomize", str(path), "--load-restrictor=LoadRestrictionsNone"],
+        command,
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     ).stdout
     result = {}
     for chunk in text.split("\n---\n"):
@@ -72,8 +76,8 @@ def verify(central_repo: Path) -> None:
         with tarfile.open(fileobj=io.BytesIO(archive)) as source:
             source.extractall(directory, filter="data")
         central = Path(directory) / CENTRAL
-        root = render(central / "clusters/dev01")
-        gateway = render(central / "clusters/dev01/gateway-resources")
+        root = render(central / "clusters/dev01", historical_central=True)
+        gateway = render(central / "clusters/dev01/gateway-resources", historical_central=True)
         workload = {
             (kind, "codex-specops", name): root[(kind, "codex-specops", name)]
             for kind, name in WORKLOAD

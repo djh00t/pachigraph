@@ -9,10 +9,12 @@ revisions. Keycloak provides browser identity and scoped API keys serve agents.
 There is no embedding service or AI processing.
 
 Application source stays in [djh00t/pachigraph](https://github.com/djh00t/pachigraph).
-Flux manifests and deployment operations live in
-[code_pipeline](https://github.com/Titanicar-US/code_pipeline/issues/710).
-The intended endpoint is `https://pachigraph.e164sip.com`; Kubernetes deployment
-and live qualification are pending. The earlier private Sites release remains
+Candidate source-owned workload and route manifests live in [infra/k8s](infra/k8s/README.md).
+[code_pipeline](https://github.com/Titanicar-US/code_pipeline/issues/710) retains current
+Flux ownership and platform/environment operations until accepted migration cutover.
+The intended endpoint is `https://pachigraph.e164sip.com`. Current Kubernetes
+resources remain under central Flux ownership. Operator qualification and accepted
+migration cutover are pending. The earlier private Sites release remains
 available during cutover. Prior website acceptance does not imply acceptance of
 the new deployment or complete ingestion workflow. No personal transcripts have
 been imported and no daily collection job is installed.

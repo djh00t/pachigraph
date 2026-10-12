@@ -1,0 +1,8 @@
+{
+  "source_base": "bc51b5baf7465e701722cef60daf08cd6a403751",
+  "central_source": "745f4083207239bbb822b23e83c58fd976d61fcf",
+  "source_entrypoints": ["infra/k8s/workload", "infra/k8s/routes"],
+  "resources": 6,
+  "complete_semantic_parity": true,
+  "live_handoff_qualified": false
+}

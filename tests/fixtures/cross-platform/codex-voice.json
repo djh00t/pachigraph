@@ -1,0 +1,76 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "producer": {
+    "repository": "openai/codex",
+    "commit": "aff92080f2b8d5f63a63b4ada7b92054287f237c"
+  },
+  "cases": [
+    {
+      "name": "codex-rollout-without-native-event-id",
+      "source_kind": "codex",
+      "upstream_thread_id": "019cbbc4-7fd4-7bca-9dc4-d63a3439189e",
+      "coverage": "unknown",
+      "captured_at": "2026-01-02T00:00:00Z",
+      "records": [
+        {
+          "timestamp": "2026-01-01T00:00:00Z",
+          "type": "event_msg",
+          "payload": {
+            "type": "user_message",
+            "message": "Keep the sample blue.",
+            "local_images": [],
+            "local_audio": [],
+            "text_elements": []
+          }
+        },
+        {
+          "timestamp": "2026-01-01T00:00:00Z",
+          "type": "event_msg",
+          "payload": {
+            "type": "user_message",
+            "message": "Keep the sample blue.",
+            "local_images": [],
+            "local_audio": [],
+            "text_elements": []
+          }
+        }
+      ],
+      "expectations": {
+        "native_event_ids_available": false,
+        "distinct_source_events": 2,
+        "replay_requires_retained_identity_or_checkpoint": true,
+        "content_hash_alone_is_identity": false
+      }
+    },
+    {
+      "name": "voice-selected-handoff-with-later-correction",
+      "source_kind": "voice",
+      "upstream_thread_id": null,
+      "upstream_call_id": null,
+      "coverage": "partial",
+      "captured_at": "2026-01-02T00:00:00Z",
+      "record_shape": "RealtimeHandoffRequested payload; selected active_transcript entries",
+      "record": {
+        "handoff_id": "synthetic-handoff-1",
+        "item_id": "synthetic-item-2",
+        "input_transcript": "Correction: make the sample green.",
+        "active_transcript": [
+          { "role": "user", "text": "Make the sample blue." },
+          { "role": "user", "text": "Correction: make the sample green." }
+        ]
+      },
+      "expectations": {
+        "entry_original_timestamp": null,
+        "entry_native_event_id": null,
+        "distinct_source_events": 2,
+        "original_text_preserved": "Make the sample blue.",
+        "correction_is_new_event": true,
+        "input_transcript_may_repeat_active_entry": true,
+        "full_call_capture_established": false,
+        "audio_available": false,
+        "missing_metadata_must_not_be_invented": true
+      }
+    }
+  ]
+}

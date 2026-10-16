@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const SHA = /^[0-9a-f]{40}$/;
-const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const IMAGE = 'ghcr.io/djh00t/pachigraph';
+const IMAGE_REFERENCE = /^ghcr\.io\/djh00t\/pachigraph@(sha256:[0-9a-f]{64})$/;
 
 function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -22,10 +22,11 @@ export function buildReleaseEvidence(input) {
   if (!SHA.test(input.sourceCommit) || !SHA.test(input.previousCommit)) {
     throw new Error('source commits must be lowercase full SHAs');
   }
-  const [name, digest] = input.image.split('@');
-  if (name !== IMAGE || !DIGEST.test(digest ?? '')) {
+  const imageMatch = IMAGE_REFERENCE.exec(input.image);
+  if (!imageMatch) {
     throw new Error('published image must be the immutable Pachigraph image');
   }
+  const [, digest] = imageMatch;
   for (const [layer, rendered] of Object.entries(input.layers)) {
     if (
       !['workload', 'routes'].includes(layer) ||
@@ -38,16 +39,25 @@ export function buildReleaseEvidence(input) {
   if (Object.keys(input.layers).sort().join(',') !== 'routes,workload') {
     throw new Error('publication must contain exactly workload and routes');
   }
-  if (!input.layers.workload.includes(input.image)) {
-    throw new Error('workload render must contain the published image');
+  const images = (rendered) =>
+    [
+      ...rendered.matchAll(
+        /^\s*(?:-\s*)?image:\s*(['"]?)([^'"\s#]+)\1(?:\s+#.*)?\s*$/gm,
+      ),
+    ].map((match) => match[2]);
+  const workloadImages = [...new Set(images(input.layers.workload))];
+  if (workloadImages.length !== 1 || workloadImages[0] !== input.image) {
+    throw new Error(
+      'workload render images must exactly match the published image',
+    );
   }
-  if (/^\s*image\s*:/m.test(input.layers.routes)) {
+  if (images(input.layers.routes).length) {
     throw new Error('routes render must not contain container images');
   }
   const workload = {
     rendered: input.layers.workload,
     render_digest: sha256(input.layers.workload),
-    images: [{ name, digest }],
+    images: [{ name: IMAGE, digest }],
   };
   const routes = {
     rendered: input.layers.routes,

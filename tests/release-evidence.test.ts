@@ -57,6 +57,11 @@ test('rejects malformed identities and incomplete layer evidence', () => {
       (value.image = 'ghcr.io/other/app@' + digest),
     (value: ReturnType<typeof input>) => (value.image += '@junk'),
     (value: ReturnType<typeof input>) => (value.runId = '0'),
+    (value: ReturnType<typeof input>) => (value.runId = '1e3'),
+    (value: ReturnType<typeof input>) => (value.runId = '0x2a'),
+    (value: ReturnType<typeof input>) => (value.runId = '+1'),
+    (value: ReturnType<typeof input>) => (value.runId = ' 1'),
+    (value: ReturnType<typeof input>) => (value.runAttempt = '01'),
     (value: ReturnType<typeof input>) =>
       delete (value.layers as { routes?: string }).routes,
     (value: ReturnType<typeof input>) =>

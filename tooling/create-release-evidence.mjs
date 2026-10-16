@@ -11,9 +11,12 @@ function sha256(value) {
 }
 
 function positiveInteger(value, name) {
+  if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(`${name} must be a canonical positive decimal integer`);
+  }
   const number = Number(value);
-  if (!Number.isSafeInteger(number) || number <= 0) {
-    throw new Error(`${name} must be a positive integer`);
+  if (!Number.isSafeInteger(number)) {
+    throw new Error(`${name} must be a safe positive integer`);
   }
   return number;
 }

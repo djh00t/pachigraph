@@ -7,6 +7,23 @@ following records describe earlier releases and do not qualify Kubernetes.
 
 # Release workstreams
 
+## Cluster release evidence
+
+The image workflow keeps its existing push behavior. A manual run on `main` may
+also provide the exact source commit currently approved by code_pipeline. After
+the normal checks and immutable image build pass, the workflow renders
+`infra/k8s/workload` and `infra/k8s/routes` with the published digest and uploads
+one `cluster-release-evidence/release.json` artifact. The artifact binds the
+source and previous commits, workflow run and attempt, immutable image, complete
+layer renders and SHA-256 render digests.
+
+The evidence is input to the central read-only proposal workflow. It does not
+qualify the publisher, approve bindings, change the central reference, deploy,
+activate Flux or establish runtime acceptance. A human must review the exact
+previous commit before dispatch. Central publication qualification, registry
+verification, reference PR review, merge and operator handoff remain separate
+gates. Ordinary push publication does not create the release evidence artifact.
+
 The current work replaces MCP with the existing skill's direct HTTP tools,
 adds the read-only status command, and removes the MCP route and dependencies.
 The collector and stored data contracts are unchanged. Reviewed source

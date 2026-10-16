@@ -55,11 +55,15 @@ test('rejects malformed identities and incomplete layer evidence', () => {
     (value: ReturnType<typeof input>) => (value.sourceCommit = 'short'),
     (value: ReturnType<typeof input>) =>
       (value.image = 'ghcr.io/other/app@' + digest),
+    (value: ReturnType<typeof input>) => (value.image += '@junk'),
     (value: ReturnType<typeof input>) => (value.runId = '0'),
     (value: ReturnType<typeof input>) =>
       delete (value.layers as { routes?: string }).routes,
     (value: ReturnType<typeof input>) =>
       (value.layers.workload = workload.replace(image, 'missing')),
+    (value: ReturnType<typeof input>) =>
+      (value.layers.workload +=
+        '      - image: ghcr.io/example/sidecar@' + digest + '\n'),
     (value: ReturnType<typeof input>) =>
       (value.layers.routes += 'image: forbidden\n'),
   ]) {

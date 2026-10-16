@@ -1,8 +1,13 @@
 name: image
 on:
   push:
-    branches: [main, "codex/**"]
+    branches: [main, 'codex/**']
   workflow_dispatch:
+    inputs:
+      previous_commit:
+        description: Exact source commit currently approved by code_pipeline
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -10,6 +15,7 @@ jobs:
     uses: ./.github/workflows/check.yml
   publish:
     needs: check
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -37,3 +43,55 @@ jobs:
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: echo "ghcr.io/djh00t/pachigraph@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install native renderer for release evidence
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -fsSL "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl" -o "${RUNNER_TEMP}/bin/kubectl"
+          curl -fsSL "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl.sha256" -o "${RUNNER_TEMP}/bin/kubectl.sha256"
+          (cd "${RUNNER_TEMP}/bin" && printf '%s  kubectl\n' "$(cat kubectl.sha256)" | sha256sum --check)
+          chmod +x "${RUNNER_TEMP}/bin/kubectl"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+      - name: Render exact published layers
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          cp -R infra/k8s "${RUNNER_TEMP}/release-k8s"
+          RELEASE_ROOT="${RUNNER_TEMP}/release-k8s" RELEASE_DIGEST="${DIGEST}" node <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = `${process.env.RELEASE_ROOT}/workload/Kustomization`;
+          const kustomization = JSON.parse(readFileSync(path, 'utf8'));
+          kustomization.images = [{
+            name: 'ghcr.io/djh00t/pachigraph',
+            newName: 'ghcr.io/djh00t/pachigraph',
+            digest: process.env.RELEASE_DIGEST,
+          }];
+          writeFileSync(path, `${JSON.stringify(kustomization, null, 2)}\n`);
+          NODE
+          mkdir -p "${RUNNER_TEMP}/cluster-release-evidence"
+          kubectl kustomize "${RUNNER_TEMP}/release-k8s/workload" > "${RUNNER_TEMP}/workload.yaml"
+          kubectl kustomize "${RUNNER_TEMP}/release-k8s/routes" > "${RUNNER_TEMP}/routes.yaml"
+      - name: Build layered release evidence
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          PREVIOUS_COMMIT: ${{ inputs.previous_commit }}
+        run: |
+          node tooling/create-release-evidence.mjs \
+            --source-commit "${GITHUB_SHA}" \
+            --previous-commit "${PREVIOUS_COMMIT}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --image "ghcr.io/djh00t/pachigraph@${DIGEST}" \
+            --workload-render "${RUNNER_TEMP}/workload.yaml" \
+            --routes-render "${RUNNER_TEMP}/routes.yaml" \
+            --output "${RUNNER_TEMP}/cluster-release-evidence/release.json"
+      - name: Upload layered release evidence
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cluster-release-evidence
+          path: ${{ runner.temp }}/cluster-release-evidence/release.json
+          if-no-files-found: error
+          retention-days: 30

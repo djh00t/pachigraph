@@ -17,17 +17,22 @@ function assertTiming(record: {
   started_at: string | null;
   completed_at: string | null;
   duration_ms: number | null;
+  status: string;
 }) {
+  const requiresTiming = ['passed', 'failed'].includes(record.status);
   if (record.started_at === null) {
+    assert.equal(requiresTiming, false);
     assert.equal(record.completed_at, null);
     assert.equal(record.duration_ms, null);
     return;
   }
   assert.notEqual(record.completed_at, null);
-  assert.equal(
-    Date.parse(record.completed_at as string) - Date.parse(record.started_at),
-    record.duration_ms,
-  );
+  assert.notEqual(record.duration_ms, null);
+  const startedAt = Date.parse(record.started_at);
+  const completedAt = Date.parse(record.completed_at as string);
+  assert.ok(completedAt >= startedAt);
+  assert.ok((record.duration_ms as number) >= 0);
+  assert.equal(completedAt - startedAt, record.duration_ms);
 }
 
 type Outcome = {
@@ -69,6 +74,45 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
     ['release-merge', { requires: ['feature-review'], status: 'passed' }],
     ['main-promotion', { requires: ['release-merge'], status: 'blocked' }],
   ]);
+  const expectedArtifacts = new Map([
+    [
+      'source',
+      {
+        source_type: 'git',
+        project: 'djh00t/pachigraph',
+        object_type: 'commit',
+        object_id: 'aa9839e0ddd54b3ff029c54d918befda3a944c28',
+      },
+    ],
+    [
+      'local-check',
+      {
+        source_type: 'local',
+        project: 'djh00t/pachigraph',
+        object_type: 'check-receipt',
+        object_id: 'synthetic-make-check',
+      },
+    ],
+    [
+      'feature-review',
+      {
+        source_type: 'github',
+        project: 'djh00t/pachigraph',
+        object_type: 'pull-request',
+        object_id: '18',
+      },
+    ],
+    [
+      'release-merge',
+      {
+        source_type: 'git',
+        project: 'djh00t/pachigraph',
+        object_type: 'commit',
+        object_id: 'af62264885bd5310cd4c070e9d50bb33ab67bc7b',
+      },
+    ],
+    ['main-promotion', null],
+  ]);
   const seen = new Set<string>();
   for (const step of fixture.journey.steps) {
     assert.equal(seen.has(step.id), false, `duplicate lifecycle step: ${step.id}`);
@@ -79,15 +123,7 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
     for (const dependency of step.requires) assert.ok(seen.has(dependency));
     seen.add(step.id);
     assertTiming(step);
-    if (step.status === 'passed') {
-      assert.deepEqual(Object.keys(step.artifact).sort(), [
-        'object_id',
-        'object_type',
-        'project',
-        'source_type',
-      ]);
-      assert.ok(Object.values(step.artifact).every(Boolean));
-    }
+    assert.deepEqual(step.artifact, expectedArtifacts.get(step.id));
   }
   assert.deepEqual([...seen], [...expectedSteps.keys()]);
   const promotion = fixture.journey.steps.at(-1);

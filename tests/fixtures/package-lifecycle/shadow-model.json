@@ -1,0 +1,144 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "private_data": false,
+  "shared_contract_conformance": "unclaimed",
+  "bindings": {
+    "inputs": {
+      "value": "source=aa9839e0ddd54b3ff029c54d918befda3a944c28|release=af62264885bd5310cd4c070e9d50bb33ab67bc7b",
+      "digest": "sha256:8ed2d193dce5d50d39bb7a5e26ae73439502e8d5ea80bd1cb010010c71aeaa6e"
+    },
+    "toolchain": {
+      "value": "node@24|npm-ci|make-check",
+      "digest": "sha256:984c156aaa8305a0fc79d99902f5d5baf5390019bb7d8dca46ad1971d01614f4"
+    },
+    "configuration": {
+      "value": "check-base=main|release=0.1.0",
+      "digest": "sha256:d48223a34a7b9a143a73fe2ce7ff97e3df02c8bde58c076125abf437e9033ffb"
+    },
+    "fixtures": {
+      "value": "synthetic-package-lifecycle-shadow-v1",
+      "digest": "sha256:66454b46fd0ee994a6a0a3e7c479c82f31b6583ccde06aa5c322fe0c1cad4244"
+    },
+    "policy": {
+      "value": "feature-actions=off|main-human-only|provider=shadow-only",
+      "digest": "sha256:d2bb252f0050f0ec5d59a5adba655d46367ab06a153bf2d12491f68a8b70cf7a"
+    }
+  },
+  "journey": {
+    "id": "synthetic-package-lifecycle",
+    "steps": [
+      {
+        "id": "source",
+        "status": "passed",
+        "requires": [],
+        "artifact": {
+          "source_type": "git",
+          "project": "djh00t/pachigraph",
+          "object_type": "commit",
+          "object_id": "aa9839e0ddd54b3ff029c54d918befda3a944c28"
+        },
+        "started_at": "2026-10-17T01:40:00.000Z",
+        "completed_at": "2026-10-17T01:40:00.250Z",
+        "duration_ms": 250
+      },
+      {
+        "id": "local-check",
+        "status": "passed",
+        "requires": ["source"],
+        "artifact": {
+          "source_type": "local",
+          "project": "djh00t/pachigraph",
+          "object_type": "check-receipt",
+          "object_id": "synthetic-make-check"
+        },
+        "started_at": "2026-10-17T01:40:01.000Z",
+        "completed_at": "2026-10-17T01:40:17.000Z",
+        "duration_ms": 16000
+      },
+      {
+        "id": "feature-review",
+        "status": "passed",
+        "requires": ["local-check"],
+        "artifact": {
+          "source_type": "github",
+          "project": "djh00t/pachigraph",
+          "object_type": "pull-request",
+          "object_id": "18"
+        },
+        "started_at": "2026-10-17T01:44:01.000Z",
+        "completed_at": "2026-10-17T01:45:17.000Z",
+        "duration_ms": 76000
+      },
+      {
+        "id": "release-merge",
+        "status": "passed",
+        "requires": ["feature-review"],
+        "artifact": {
+          "source_type": "git",
+          "project": "djh00t/pachigraph",
+          "object_type": "commit",
+          "object_id": "af62264885bd5310cd4c070e9d50bb33ab67bc7b"
+        },
+        "started_at": "2026-10-17T01:46:07.000Z",
+        "completed_at": "2026-10-17T01:46:07.000Z",
+        "duration_ms": 0
+      },
+      {
+        "id": "main-promotion",
+        "status": "blocked",
+        "requires": ["release-merge"],
+        "artifact": null,
+        "started_at": null,
+        "completed_at": null,
+        "duration_ms": null,
+        "reason": "human-only merge is pending"
+      }
+    ]
+  },
+  "outcome_examples": [
+    {
+      "id": "failed-check",
+      "status": "failed",
+      "artifact": "synthetic-failure-receipt",
+      "started_at": "2026-10-17T01:00:00.000Z",
+      "completed_at": "2026-10-17T01:00:01.000Z",
+      "duration_ms": 1000
+    },
+    {
+      "id": "skipped-provider",
+      "status": "skipped",
+      "artifact": null,
+      "started_at": null,
+      "completed_at": null,
+      "duration_ms": null
+    },
+    {
+      "id": "unknown-contract",
+      "status": "unknown",
+      "artifact": null,
+      "started_at": null,
+      "completed_at": null,
+      "duration_ms": null
+    },
+    {
+      "id": "stale-runtime",
+      "status": "stale",
+      "artifact": "synthetic-prior-runtime-receipt",
+      "started_at": "2026-10-16T01:00:00.000Z",
+      "completed_at": "2026-10-16T01:00:02.000Z",
+      "duration_ms": 2000
+    }
+  ],
+  "deterministic_selection": {
+    "reason": "stale evidence selects the broad fallback",
+    "checks": ["contract", "persistence", "migration", "recovery", "authorization", "tenant"]
+  },
+  "shadow_model": {
+    "fixture_only": true,
+    "provider_called": false,
+    "private_upload": false,
+    "advice": ["contract"],
+    "can_waive_deterministic_selection": false
+  }
+}

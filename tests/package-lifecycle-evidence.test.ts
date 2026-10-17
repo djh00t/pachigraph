@@ -29,8 +29,16 @@ function assertTiming(record: {
   assert.equal(requiresTiming, true);
   assert.notEqual(record.completed_at, null);
   assert.notEqual(record.duration_ms, null);
+  const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  assert.match(record.started_at, utcTimestamp);
+  assert.match(record.completed_at as string, utcTimestamp);
   const startedAt = Date.parse(record.started_at);
   const completedAt = Date.parse(record.completed_at as string);
+  assert.equal(new Date(startedAt).toISOString(), record.started_at);
+  assert.equal(
+    new Date(completedAt).toISOString(),
+    record.completed_at as string,
+  );
   assert.ok(completedAt >= startedAt);
   assert.ok((record.duration_ms as number) >= 0);
   assert.equal(completedAt - startedAt, record.duration_ms);

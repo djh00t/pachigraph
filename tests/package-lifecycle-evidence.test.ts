@@ -40,6 +40,7 @@ type Outcome = {
 };
 
 test('journal binds digests and a connected source-qualified lifecycle', () => {
+  assert.equal(fixture.fixture_version, 1);
   assert.equal(fixture.synthetic, true);
   assert.equal(fixture.private_data, false);
   assert.equal(fixture.shared_contract_conformance, 'unclaimed');
@@ -57,17 +58,24 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
     assert.equal(binding.digest, digest(binding.value));
   }
 
-  const expectedRequires = new Map<string, string[]>([
-    ['source', []],
-    ['local-check', ['source']],
-    ['feature-review', ['local-check']],
-    ['release-merge', ['feature-review']],
-    ['main-promotion', ['release-merge']],
+  assert.equal(fixture.journey.id, 'synthetic-package-lifecycle');
+  const expectedSteps = new Map<
+    string,
+    { requires: string[]; status: string }
+  >([
+    ['source', { requires: [], status: 'passed' }],
+    ['local-check', { requires: ['source'], status: 'passed' }],
+    ['feature-review', { requires: ['local-check'], status: 'passed' }],
+    ['release-merge', { requires: ['feature-review'], status: 'passed' }],
+    ['main-promotion', { requires: ['release-merge'], status: 'blocked' }],
   ]);
   const seen = new Set<string>();
   for (const step of fixture.journey.steps) {
     assert.equal(seen.has(step.id), false, `duplicate lifecycle step: ${step.id}`);
-    assert.deepEqual(step.requires, expectedRequires.get(step.id));
+    const expected = expectedSteps.get(step.id);
+    assert.ok(expected, `unexpected lifecycle step: ${step.id}`);
+    assert.deepEqual(step.requires, expected.requires);
+    assert.equal(step.status, expected.status);
     for (const dependency of step.requires) assert.ok(seen.has(dependency));
     seen.add(step.id);
     assertTiming(step);
@@ -81,13 +89,7 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
       assert.ok(Object.values(step.artifact).every(Boolean));
     }
   }
-  assert.deepEqual([...seen], [
-    'source',
-    'local-check',
-    'feature-review',
-    'release-merge',
-    'main-promotion',
-  ]);
+  assert.deepEqual([...seen], [...expectedSteps.keys()]);
   const promotion = fixture.journey.steps.at(-1);
   assert.equal(promotion.status, 'blocked');
   assert.equal(promotion.artifact, null);

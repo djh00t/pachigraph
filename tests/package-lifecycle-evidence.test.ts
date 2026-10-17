@@ -19,13 +19,14 @@ function assertTiming(record: {
   duration_ms: number | null;
   status: string;
 }) {
-  const requiresTiming = ['passed', 'failed'].includes(record.status);
+  const requiresTiming = ['passed', 'failed', 'stale'].includes(record.status);
   if (record.started_at === null) {
     assert.equal(requiresTiming, false);
     assert.equal(record.completed_at, null);
     assert.equal(record.duration_ms, null);
     return;
   }
+  assert.equal(requiresTiming, true);
   assert.notEqual(record.completed_at, null);
   assert.notEqual(record.duration_ms, null);
   const startedAt = Date.parse(record.started_at);

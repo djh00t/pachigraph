@@ -56,24 +56,37 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
     'policy',
     'toolchain',
   ]);
-  for (const binding of Object.values(fixture.bindings) as Array<{
-    value: string;
-    digest: string;
-  }>) {
+  const expectedBindingValues: Record<string, string> = {
+    inputs:
+      'source=aa9839e0ddd54b3ff029c54d918befda3a944c28|release=af62264885bd5310cd4c070e9d50bb33ab67bc7b',
+    toolchain: 'node@24|npm-ci|make-check',
+    configuration: 'check-base=main|release=0.1.0',
+    fixtures: 'synthetic-package-lifecycle-shadow-v1',
+    policy: 'feature-actions=off|main-human-only|provider=shadow-only',
+  };
+  for (const [key, binding] of Object.entries(fixture.bindings) as Array<
+    [
+      string,
+      {
+        value: string;
+        digest: string;
+      },
+    ]
+  >) {
+    assert.equal(binding.value, expectedBindingValues[key]);
     assert.equal(binding.digest, digest(binding.value));
   }
 
   assert.equal(fixture.journey.id, 'synthetic-package-lifecycle');
-  const expectedSteps = new Map<
-    string,
-    { requires: string[]; status: string }
-  >([
-    ['source', { requires: [], status: 'passed' }],
-    ['local-check', { requires: ['source'], status: 'passed' }],
-    ['feature-review', { requires: ['local-check'], status: 'passed' }],
-    ['release-merge', { requires: ['feature-review'], status: 'passed' }],
-    ['main-promotion', { requires: ['release-merge'], status: 'blocked' }],
-  ]);
+  const expectedSteps = new Map<string, { requires: string[]; status: string }>(
+    [
+      ['source', { requires: [], status: 'passed' }],
+      ['local-check', { requires: ['source'], status: 'passed' }],
+      ['feature-review', { requires: ['local-check'], status: 'passed' }],
+      ['release-merge', { requires: ['feature-review'], status: 'passed' }],
+      ['main-promotion', { requires: ['release-merge'], status: 'blocked' }],
+    ],
+  );
   const expectedArtifacts = new Map([
     [
       'source',
@@ -115,7 +128,11 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
   ]);
   const seen = new Set<string>();
   for (const step of fixture.journey.steps) {
-    assert.equal(seen.has(step.id), false, `duplicate lifecycle step: ${step.id}`);
+    assert.equal(
+      seen.has(step.id),
+      false,
+      `duplicate lifecycle step: ${step.id}`,
+    );
     const expected = expectedSteps.get(step.id);
     assert.ok(expected, `unexpected lifecycle step: ${step.id}`);
     assert.deepEqual(step.requires, expected.requires);
@@ -134,12 +151,16 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
 
 test('outcomes retain evidence boundaries and unresolved state selects broad checks', () => {
   assert.deepEqual(
-    fixture.outcome_examples.map(({ id, status }: Outcome) => [id, status]),
+    fixture.outcome_examples.map(({ id, status, artifact }: Outcome) => [
+      id,
+      status,
+      artifact,
+    ]),
     [
-      ['failed-check', 'failed'],
-      ['skipped-provider', 'skipped'],
-      ['unknown-contract', 'unknown'],
-      ['stale-runtime', 'stale'],
+      ['failed-check', 'failed', 'synthetic-failure-receipt'],
+      ['skipped-provider', 'skipped', null],
+      ['unknown-contract', 'unknown', null],
+      ['stale-runtime', 'stale', 'synthetic-prior-runtime-receipt'],
     ],
   );
   const outcomes = Object.fromEntries(
@@ -152,18 +173,18 @@ test('outcomes retain evidence boundaries and unresolved state selects broad che
       assert.equal(value.artifact, null);
   }
 
-  assert.deepEqual(
-    [...fixture.deterministic_selection.checks].sort(),
-    [
-      'authorization',
-      'contract',
-      'migration',
-      'persistence',
-      'recovery',
-      'tenant',
-    ],
+  assert.deepEqual([...fixture.deterministic_selection.checks].sort(), [
+    'authorization',
+    'contract',
+    'migration',
+    'persistence',
+    'recovery',
+    'tenant',
+  ]);
+  assert.equal(
+    fixture.deterministic_selection.reason,
+    'stale evidence selects the broad fallback',
   );
-  assert.match(fixture.deterministic_selection.reason, /stale/);
 });
 
 test('shadow model is fixture-only and cannot waive deterministic selection', () => {
@@ -171,6 +192,7 @@ test('shadow model is fixture-only and cannot waive deterministic selection', ()
   assert.equal(fixture.shadow_model.provider_called, false);
   assert.equal(fixture.shadow_model.private_upload, false);
   assert.equal(fixture.shadow_model.can_waive_deterministic_selection, false);
+  assert.deepEqual(fixture.shadow_model.advice, ['contract']);
   assert.ok(
     fixture.shadow_model.advice.every((value: string) =>
       fixture.deterministic_selection.checks.includes(value),

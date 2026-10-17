@@ -9,9 +9,9 @@
 
 ## Trigger policy
 
-- [ ] Add a failing native regression test for an unguarded pull-request trigger.
-- [ ] Limit pull-request checks to base branch `main`; retain `workflow_call`.
-- [ ] Run the focused policy test and verify the feature PR has no Actions run.
+- [x] Add a failing native regression test for an unguarded pull-request trigger.
+- [x] Limit pull-request checks to base branch `main`; retain `workflow_call`.
+- [ ] Verify the supporting feature PR creates no Actions run.
 
 ## Packaged journey
 

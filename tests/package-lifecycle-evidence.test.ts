@@ -155,7 +155,7 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
   const promotion = fixture.journey.steps.at(-1);
   assert.equal(promotion.status, 'blocked');
   assert.equal(promotion.artifact, null);
-  assert.match(promotion.reason, /human-only/);
+  assert.equal(promotion.reason, 'human-only merge is pending');
 });
 
 test('outcomes retain evidence boundaries and unresolved state selects broad checks', () => {

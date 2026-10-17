@@ -43,6 +43,13 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
   assert.equal(fixture.synthetic, true);
   assert.equal(fixture.private_data, false);
   assert.equal(fixture.shared_contract_conformance, 'unclaimed');
+  assert.deepEqual(Object.keys(fixture.bindings).sort(), [
+    'configuration',
+    'fixtures',
+    'inputs',
+    'policy',
+    'toolchain',
+  ]);
   for (const binding of Object.values(fixture.bindings) as Array<{
     value: string;
     digest: string;

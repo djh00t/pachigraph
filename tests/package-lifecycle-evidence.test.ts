@@ -59,6 +59,7 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
   ]);
   const seen = new Set<string>();
   for (const step of fixture.journey.steps) {
+    assert.equal(seen.has(step.id), false, `duplicate lifecycle step: ${step.id}`);
     assert.deepEqual(step.requires, expectedRequires.get(step.id));
     for (const dependency of step.requires) assert.ok(seen.has(dependency));
     seen.add(step.id);

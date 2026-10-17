@@ -50,8 +50,16 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
     assert.equal(binding.digest, digest(binding.value));
   }
 
+  const expectedRequires = new Map<string, string[]>([
+    ['source', []],
+    ['local-check', ['source']],
+    ['feature-review', ['local-check']],
+    ['release-merge', ['feature-review']],
+    ['main-promotion', ['release-merge']],
+  ]);
   const seen = new Set<string>();
   for (const step of fixture.journey.steps) {
+    assert.deepEqual(step.requires, expectedRequires.get(step.id));
     for (const dependency of step.requires) assert.ok(seen.has(dependency));
     seen.add(step.id);
     assertTiming(step);

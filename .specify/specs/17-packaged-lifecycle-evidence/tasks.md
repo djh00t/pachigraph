@@ -15,12 +15,13 @@
 
 ## Packaged journey
 
-- [ ] Add the shadow-only typed model fixture.
+- [x] Add the shadow-only typed model fixture.
+- [x] Characterize lifecycle dependencies, artifacts, outcome timing and broad fallback without claiming shared-contract conformance.
 - [ ] Add the deterministic lifecycle evidence builder.
 - [ ] Test node kinds, statuses, digests, timing, exact edges and source binding.
 - [ ] Test transitive invalidation and unknown/stale broad fallback.
 - [ ] Test mandatory money, auth, tenant, persistence, migration and recovery overlays.
-- [ ] Test that shadow model output cannot waive deterministic checks or overlays.
+- [x] Test that shadow model output cannot narrow deterministic broad fallback.
 
 ## Delivery
 

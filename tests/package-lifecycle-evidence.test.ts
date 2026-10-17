@@ -97,13 +97,18 @@ test('journal binds digests and a connected source-qualified lifecycle', () => {
 });
 
 test('outcomes retain evidence boundaries and unresolved state selects broad checks', () => {
+  assert.deepEqual(
+    fixture.outcome_examples.map(({ id, status }: Outcome) => [id, status]),
+    [
+      ['failed-check', 'failed'],
+      ['skipped-provider', 'skipped'],
+      ['unknown-contract', 'unknown'],
+      ['stale-runtime', 'stale'],
+    ],
+  );
   const outcomes = Object.fromEntries(
     (fixture.outcome_examples as Outcome[]).map((value) => [value.id, value]),
   ) as Record<string, Outcome>;
-  assert.deepEqual(
-    new Set(Object.values(outcomes).map((value) => value.status)),
-    new Set(['failed', 'skipped', 'unknown', 'stale']),
-  );
   for (const value of Object.values(outcomes)) {
     assertTiming(value);
     if (['failed', 'stale'].includes(value.status)) assert.ok(value.artifact);
@@ -112,15 +117,15 @@ test('outcomes retain evidence boundaries and unresolved state selects broad che
   }
 
   assert.deepEqual(
-    new Set(fixture.deterministic_selection.checks),
-    new Set([
+    [...fixture.deterministic_selection.checks].sort(),
+    [
       'authorization',
       'contract',
       'migration',
       'persistence',
       'recovery',
       'tenant',
-    ]),
+    ],
   );
   assert.match(fixture.deterministic_selection.reason, /stale/);
 });

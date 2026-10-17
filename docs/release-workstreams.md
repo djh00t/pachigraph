@@ -24,6 +24,23 @@ previous commit before dispatch. Central publication qualification, registry
 verification, reference PR review, merge and operator handoff remain separate
 gates. Ordinary push publication does not create the release evidence artifact.
 
+Source delivery completed in [PR #12](https://github.com/djh00t/pachigraph/pull/12).
+Reviewed head `40c04fd300bc25e20348892d35c17b409eb921e3` merged to `main` as
+`976ad3099d86c244ea9d02ec57bbd7ac99e4ff66`; the merge tree is byte-identical
+to the reviewed head. Automatic push run
+[38872334232](https://github.com/djh00t/pachigraph/actions/runs/38872334232)
+passed its check, container and image jobs and published immutable image
+`sha256:dfe6feee08027008d6ae04aa08446186a89786fb7af25e1436db45c95bd9eeaa`.
+As designed, that push run skipped the manual release-evidence steps and did not
+produce `cluster-release-evidence`.
+
+The next publication input remains one separately approved manual run on merged
+`main` with previous commit `bc51b5baf7465e701722cef60daf08cd6a403751`.
+That dispatch and its image publication are not source-delivery evidence and are
+not authorized by this record. Central qualification must verify the resulting
+workflow run, workflow blob, registry digest, both rendered layers and previous
+commit before any environment-reference proposal.
+
 The current work replaces MCP with the existing skill's direct HTTP tools,
 adds the read-only status command, and removes the MCP route and dependencies.
 The collector and stored data contracts are unchanged. Reviewed source

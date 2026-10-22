@@ -1,5 +1,42 @@
 # Pachigraph feature status
 
+## October engineering reconciliation — 2026-10-22
+
+Evidence checked on 22 October 2026 at 20:38 Australia/Sydney (09:38 UTC).
+Source baseline: `0487c5eb78bc26c0e9f2ce894ad381aab403f30a`. This section
+supersedes older current-state descriptions only where fresh evidence is linked;
+the dated September and Sites records below remain historical evidence.
+This is a feature/status matrix, not an executable coordination state machine.
+An hourly refresh records observations; it does not authorize installation,
+publication dispatch, imports, runtime operations or transition execution.
+
+| Outcome | Source | Publication | Installation | Runtime / acceptance | Blocker / accountable owner | Next bounded action |
+| --- | --- | --- | --- | --- | --- | --- |
+| Packaged lifecycle and release evidence ([#17](https://github.com/djh00t/pachigraph/issues/17), [#11](https://github.com/djh00t/pachigraph/issues/11)) | PR #20 merged as `0487c5e`; exact-main checks succeeded | [17 October receipt](https://github.com/djh00t/pachigraph/issues/17#issuecomment-6229082191) confirms GHCR image `sha256:e38687a5bfe65e4937d105e69bc656ab733d8a4fc7271ae5e465aa264468d8fa` | No current-version installation established by that receipt | Deployment, Flux release-reference qualification, shared Agent Brain conformance and operator acceptance remain separate; no fresh runtime proof claimed | Existing release-evidence / QA owners under #11 and #17; central qualification belongs to the migration owner | Reconcile the next missing qualification receipt with the existing owner; do not repeat completed source checks or dispatch publication from this matrix |
+| Cross-platform archive contract ([#9](https://github.com/djh00t/pachigraph/issues/9)) | [PR #10](https://github.com/djh00t/pachigraph/pull/10) merged producer evidence, synthetic fixtures and a [contract proposal](cross-platform-contract-review.md); production contract remains unimplemented | Preparation is on main; no implementation release claimed | No new adapters or collection job installed by this work | Four-source ingest/retry/search/readback, correction links and Agent Brain retrieval acceptance remain unmet; fixture checks are not live qualification | Human interface decision pending; David/product approver, with the existing app source owner coordinating. Issue #9 remains closed; closure is not implementation evidence | Obtain explicit decisions on metadata storage, nullable time, legacy provenance and archive-ID acknowledgements; then lease the retained-identity helper and restart/replay tests as a separate 10–15 minute package |
+| Existing-version migration and recovery (existing coordination #970 / #878) | Separately owned migration/recovery source work; no public qualification receipt established by this refresh | Source delivery is separate from accepted migration | Not established by public evidence in this refresh | Recovery, controlled ownership transfer, protection and operator acceptance remain separately gated; private runtime observations are intentionally omitted | Existing Flux/migration owner; source integration is held pending that owner's protection/qualification decision. Human/operator owns later execution approvals | Obtain a sanitized public engineering handover stating the remaining gate and next authorized package; preserve the hold and existing owner. New schema is not a migration dependency |
+| Dependency qualification ([#3](https://github.com/djh00t/pachigraph/issues/3), [PR #16](https://github.com/djh00t/pachigraph/pull/16)) | Candidate `73fa7f9335b7bf92fd3342b363ba4361896647b4` changes direct SDK / formatter plus indirect dependencies | Unmerged; PR explicitly says do not merge | Candidate not installed by qualification work | Current-target checks/build/smoke and independent/Codex acceptance not provided; older hosted success does not qualify this target | Dependency Advisor returned blocked with no recommended version for the exact SDK / formatter requests; existing dependency owner under #3. Human owns any separately explicit policy exception | Preserve the candidate and policy result; await a policy-recommended candidate or explicit exception before installation and exact-target qualification. Do not retry unchanged denied work |
+
+Installation and runtime fields are evidence scopes, not claims that an older
+installation or service does not exist. Historical skill installation below is
+not proof of compatibility or installation of the October source. No current
+personal import, daily collection activation or runtime acceptance is inferred.
+
+Hourly maintenance owner: the existing Pachigraph source coordinator, through
+an isolated single-writer lease, review and feature PR to the existing release
+branch. This refresh remains a candidate until integrated; canonical status is
+the version on main. The portfolio coordinator links this existing matrix and
+owns scheduling separately. Keep each refresh bounded: update evidence time,
+source/publication/installation/runtime distinctions, blocker, owner and next
+action; preserve dated history and do not rerun unchanged failed tests.
+
+Only sanitized engineering metadata belongs here. Exclude conversation contents,
+customer or financial material, credentials, private filesystem locations and
+private runtime evidence. Link a safe public engineering receipt or explicitly
+record unknown evidence instead. No new access, credential or visibility change
+is authorized by matrix maintenance.
+
+
 ## Kubernetes migration — 2026-09-07
 
 The following work supersedes the Sites runtime. Historical evidence below does

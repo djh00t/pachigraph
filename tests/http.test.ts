@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { Principal, TenantId } from '../server/auth.ts';
 import { handleAPI, readJSON, safeResponse } from '../server/http.ts';
+
+const TENANT = 't-aaaaaaaaaaaaaaaa' as TenantId;
+function identity(scope: Principal['scope']): Principal {
+  return {
+    tenant: TENANT,
+    subject: 'subject-a',
+    scope,
+    expiresAt: new Date('2026-04-01T00:00:00.000Z'),
+  };
+}
 
 const calls: unknown[] = [];
 const history = {
@@ -45,16 +56,16 @@ test('all endpoints reject missing trusted identity before accessing storage', a
 test('search always uses authenticated owner, ignoring attacker owner parameter', async () => {
   const response = await handleAPI(
     request('/api/search?q=passage&owner=victim'),
-    'reader',
+    identity('session'),
     history,
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(calls.at(-1), ['reader', 'passage']);
+  assert.deepEqual(calls.at(-1), [TENANT, 'passage']);
 });
 test('errors never expose stored values or internal exception messages', async () => {
   const response = await handleAPI(
     request('/api/fetch?id=missing'),
-    'reader',
+    identity('session'),
     history,
   );
   assert.equal(response.status, 404);
@@ -72,7 +83,7 @@ test('mutations reject cross-origin and non-JSON requests', async () => {
   ] as Record<string, string>[]) {
     const response = await handleAPI(
       request('/api/ingest', { method: 'POST', headers, body: '{}' }),
-      'reader',
+      identity('ingest'),
       history,
     );
     assert.ok([403, 415].includes(response.status));
@@ -83,11 +94,11 @@ test('mutations reject cross-origin and non-JSON requests', async () => {
       headers: { 'content-type': 'application/json' },
       body: '{"owner":"victim"}',
     }),
-    'reader',
+    identity('ingest'),
     history,
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(calls.at(-1), ['reader', { owner: 'victim' }]);
+  assert.deepEqual(calls.at(-1), [TENANT, { owner: 'victim' }]);
 });
 test('bounded reader rejects chunked oversize, bad JSON and false content-length', async () => {
   await assert.rejects(
@@ -115,7 +126,7 @@ test('storage quota is reported as 507 rather than unavailable', async () => {
       headers: { 'content-type': 'application/json' },
       body: '{}',
     }),
-    'reader',
+    identity('ingest'),
     {
       ...history,
       ingest: async () => {
@@ -135,15 +146,16 @@ test('owner deletion uses explicit DELETE and same-origin guard', async () => {
       method: 'DELETE',
       headers: { origin: 'https://attacker.example' },
     }),
-    'reader',
+    identity('session'),
     history,
   );
   assert.equal(denied.status, 403);
+  assert.equal((await denied.clone().json()).error, 'Origin rejected');
   const allowed = await handleAPI(
     request('/api/thread?id=thread', { method: 'DELETE' }),
-    'reader',
+    identity('session'),
     history,
   );
   assert.equal(allowed.status, 200);
-  assert.deepEqual(calls.at(-1), ['reader', 'thread']);
+  assert.deepEqual(calls.at(-1), [TENANT, 'thread']);
 });

@@ -1,9 +1,13 @@
 import Link from 'next/link';
-import { getHistory } from '../db';
+import { unauthorized } from 'next/navigation';
+import { getHistory, getPool } from '../db';
+import { sessionPrincipal } from '../server/auth.ts';
+import { loadArchive } from './archive.ts';
 import { requireUser } from './auth';
 
 export const dynamic = 'force-dynamic';
 type Params = { q?: string; id?: string };
+
 export default async function Page({
   searchParams,
 }: {
@@ -12,21 +16,26 @@ export default async function Page({
   return <HistoryPage params={await searchParams} />;
 }
 async function HistoryPage({ params }: { params: Params }) {
-  const q = typeof params.q === 'string' ? params.q.trim().slice(0, 256) : '';
-  const id = typeof params.id === 'string' ? params.id : '';
   const user = await requireUser();
-  const history = getHistory();
-  const status = await history.status(user.userId);
-  const results = q ? (await history.search(user.userId, q)).results : [];
-  let selected: Awaited<ReturnType<typeof history.fetch>> | null = null;
-  let fetchError = false;
-  if (id) {
-    try {
-      selected = await history.fetch(user.userId, id);
-    } catch {
-      fetchError = true;
-    }
+  let principal;
+  try {
+    principal = await sessionPrincipal(getPool(), user);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'status' in error &&
+      error.status === 401
+    )
+      unauthorized();
+    throw error;
   }
+  const history = getHistory();
+  const { q, id, status, results, selected, fetchError } = await loadArchive(
+    principal.tenant,
+    history,
+    params,
+  );
   return (
     <main>
       <header>

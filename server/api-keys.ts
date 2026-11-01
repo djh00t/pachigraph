@@ -42,8 +42,10 @@ export function createKeys(pool: Pool) {
       if (!tenant) fail(401);
       const path = new URL(request.url).pathname;
       if (path === '/api/keys') fail(401);
-      if (row.scope !== 'read' && row.scope !== 'ingest') fail(403);
-      if (!allows(row.scope, path, request.method)) fail(403);
+      if (row.scope !== 'read' && row.scope !== 'ingest')
+        fail(403, 'Scope not allowed');
+      if (!allows(row.scope, path, request.method))
+        fail(403, 'Scope not allowed');
       return {
         tenant,
         subject: row.owner_id,

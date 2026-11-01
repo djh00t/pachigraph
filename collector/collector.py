@@ -38,6 +38,10 @@ class ScannerError(RuntimeError):
     """Report a scanner failure that must stop collection."""
 
 
+class UnmappableFinding(ScannerError):
+    """A finding cannot be redacted without losing or duplicating a value."""
+
+
 def _scanner(text):
     args = [
         "/opt/homebrew/bin/gitleaks",
@@ -112,48 +116,78 @@ def _findings(scanner, value):
     return findings
 
 
+def _pointer_token(key: str) -> str:
+    return key.replace("~", "~0").replace("/", "~1")
+
+
+def _apply_secrets(text, secrets):
+    changed = 0
+    found = []
+    for secret in secrets:
+        count = text.count(secret)
+        if count:
+            changed += count
+            found.append((secret, count))
+            text = text.replace(secret, REDACTION)
+    return text, changed, found
+
+
 def sanitize(
-    value: object, scanner: Callable[[str], object] | None = None
+    value: object,
+    scanner: Callable[[str], object] | None = None,
+    findings_out: list | None = None,
 ) -> tuple[object, int]:
     """Scan decoded strings, redact exact secrets recursively, then scan again."""
     scanner = scanner or _scanner
     findings = _findings(scanner, value)
     secrets = []
+    rule_for = {}
     source_strings = _strings(value)
     for finding in findings:
         secret = finding.get("Secret") or finding.get("Match")
         if not isinstance(secret, str) or not secret or secret == REDACTION:
             raise ScannerError("secret scanner returned invalid finding")
         if not any(secret in text for text in source_strings):
-            raise ScannerError("secret scanner finding cannot be mapped")
+            raise UnmappableFinding("secret scanner finding cannot be mapped")
+        if secret not in rule_for:
+            rule_for[secret] = str(finding.get("RuleID") or "")
         secrets.append(secret)
     secrets = sorted(set(secrets), key=len, reverse=True)
     changed = 0
 
-    def clean(item):
+    def note(pointer, occurrences):
+        if findings_out is None:
+            return
+        for secret, count in occurrences:
+            rule = rule_for[secret]
+            for _ in range(count):
+                findings_out.append((rule, pointer, secret))
+
+    def clean(item, pointer):
         nonlocal changed
         if isinstance(item, str):
-            for secret in secrets:
-                count = item.count(secret)
-                if count:
-                    changed += count
-                    item = item.replace(secret, REDACTION)
-            return item
+            updated, delta, occurrences = _apply_secrets(item, secrets)
+            changed += delta
+            note(pointer, occurrences)
+            return updated
         if isinstance(item, list):
-            return [clean(child) for child in item]
+            return [clean(child, f"{pointer}/{index}") for index, child in enumerate(item)]
         if isinstance(item, dict):
             result = {}
             for key, child in item.items():
-                new_key = clean(str(key))
-                if new_key in result:
-                    raise ScannerError("redaction creates duplicate dictionary key")
-                result[new_key] = clean(child)
+                updated, delta, occurrences = _apply_secrets(str(key), secrets)
+                changed += delta
+                if updated in result:
+                    raise UnmappableFinding("redaction creates duplicate dictionary key")
+                child_pointer = pointer + "/" + _pointer_token(updated)
+                note(child_pointer + "~k", occurrences)
+                result[updated] = clean(child, child_pointer)
             return result
         return item
 
-    cleaned = clean(value)
+    cleaned = clean(value, "")
     if _findings(scanner, cleaned):
-        raise ScannerError("secret remains after redaction")
+        raise UnmappableFinding("secret remains after redaction")
     return cleaned, changed
 
 
@@ -344,7 +378,27 @@ class State:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS tombstone (url TEXT, thread TEXT, PRIMARY KEY(url,thread))"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS meta (url TEXT PRIMARY KEY, tenant TEXT NOT NULL)"
+        )
         self.db.commit()
+
+    def pinned_tenant(self, url):
+        row = self.db.execute(
+            "SELECT tenant FROM meta WHERE url=?", (url,)
+        ).fetchone()
+        return None if row is None else row[0]
+
+    def pin_tenant(self, url, tenant):
+        current = self.pinned_tenant(url)
+        if current is None:
+            self.db.execute(
+                "INSERT INTO meta (url, tenant) VALUES (?, ?)", (url, tenant)
+            )
+            self.db.commit()
+            return
+        if current != tenant:
+            raise RuntimeError("state belongs to a different tenant")
 
     def progress(self, url, source, thread, mode):
         row = self.db.execute(
@@ -602,6 +656,15 @@ def collect(
     if not dry_run and not _local_endpoint(url) and not token:
         raise ValueError("token required for remote upload")
     state = State(state_path)
+    if not dry_run:
+        import openai_export
+
+        try:
+            who = openai_export.fetch_whoami(url, token)
+            state.pin_tenant(url, who["tenant"])
+        except Exception:
+            state.close()
+            raise
     stats = {
         "threads": 0,
         "records": 0,
@@ -641,7 +704,7 @@ def collect(
                         if isinstance(payload, dict) and payload.get("id"):
                             thread = str(payload["id"])
                             break
-                if not thread or not UUID_RE.fullmatch(thread):
+                if not thread or not UUID_RE.fullmatch(thread) or thread[14].lower() == "5":
                     stats["gaps"] += 1
                     stats["skipped_files"] += 1
                     if not dry_run:
@@ -865,10 +928,102 @@ def launchd_plist(
     )
 
 
+def _quarantine_command(state, argv) -> int:
+    import oe_qcli
+    import oe_qstore
+
+    parser = argparse.ArgumentParser(prog="openai-export quarantine")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("list")
+    show = sub.add_parser("show")
+    show.add_argument("n", type=int)
+    show.add_argument("--reveal", action="store_true")
+    purge = sub.add_parser("purge")
+    group = purge.add_mutually_exclusive_group(required=True)
+    group.add_argument("--older-than", type=int)
+    group.add_argument("--thread")
+    group.add_argument("--all", action="store_true")
+    parsed = parser.parse_args(argv)
+    allow_missing = parsed.command == "purge" and parsed.all
+    if allow_missing and not (oe_qstore.quarantine_path(state).exists() or oe_qstore.quarantine_path(state).is_symlink()):
+        return 0
+    try:
+        store = oe_qstore.Store(state, allow_missing_state=allow_missing)
+    except oe_qstore.QuarantineError:
+        return 7
+    try:
+        if parsed.command == "list":
+            return oe_qcli.list_findings(store)
+        if parsed.command == "show":
+            try:
+                return oe_qcli.show_finding(store, parsed.n, parsed.reveal)
+            except oe_qstore.QuarantineError:
+                return 7
+        try:
+            result = oe_qcli.purge(
+                store,
+                older_than=getattr(parsed, "older_than", None),
+                thread=getattr(parsed, "thread", None),
+                all_rows=getattr(parsed, "all", False),
+            )
+            if allow_missing:
+                store.close()
+                store.path.unlink()
+            return result
+        except oe_qstore.QuarantineError:
+            return 7
+    finally:
+        store.close()
+
+
+def _openai_export_command(parsed) -> int:
+    import openai_export
+    from collections import Counter
+
+    rest = list(parsed.quarantine_args)
+    if rest[:1] == ["quarantine"]:
+        return _quarantine_command(parsed.state, rest[1:])
+    if not parsed.zip or not parsed.url:
+        print("collector failed", file=sys.stderr)
+        return 2
+    if parsed.quarantine_days < 1 or parsed.quarantine_days > 365:
+        print("collector failed", file=sys.stderr)
+        return 2
+    counters = Counter()
+    try:
+        code = openai_export.run(
+            parsed.zip,
+            parsed.url,
+            _token(parsed.token_file),
+            parsed.state,
+            dry_run=parsed.dry_run,
+            quarantine_days=parsed.quarantine_days,
+            counters=counters,
+        )
+    except Exception:  # noqa: BLE001 - CLI errors must not expose secret-bearing details.
+        print("collector failed", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {key: counters[key] for key in openai_export.COUNTER_KEYS},
+            separators=(",", ":"),
+        )
+    )
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the collector command-line interface."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+    oe = sub.add_parser("openai-export")
+    oe.add_argument("--zip")
+    oe.add_argument("--url")
+    oe.add_argument("--token-file")
+    oe.add_argument("--state", required=True)
+    oe.add_argument("--dry-run", action="store_true")
+    oe.add_argument("--quarantine-days", type=int, default=30)
+    oe.add_argument("quarantine_args", nargs=argparse.REMAINDER)
     c = sub.add_parser("collect")
     c.add_argument("--codex-home", default=str(Path.home() / ".codex"))
     c.add_argument("--url", required=True)
@@ -886,6 +1041,8 @@ def main(argv: list[str] | None = None) -> int:
     l.add_argument("--output", required=True)
     l.add_argument("--install", action="store_true")
     a = parser.parse_args(argv)
+    if a.command == "openai-export":
+        return _openai_export_command(a)
     try:
         if a.command == "collect":
             result = collect(
@@ -923,8 +1080,12 @@ def main(argv: list[str] | None = None) -> int:
                     capture_output=True,
                     text=True,
                 )
-    except Exception:  # noqa: BLE001 - CLI errors must not expose secret-bearing details.
-        print("collector failed", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - CLI errors must not expose secret-bearing details.
+        import openai_export
+        if isinstance(exc, openai_export.AuthFailure):
+            print("authentication failed", file=sys.stderr)
+            return 6
+        print("state belongs to a different tenant" if str(exc) == "state belongs to a different tenant" else "collector failed", file=sys.stderr)
         return 1
     return 0
 

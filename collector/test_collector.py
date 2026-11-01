@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+from contextlib import redirect_stderr
 import os
 import plistlib
 import subprocess
@@ -23,8 +24,18 @@ class CollectorTests(unittest.TestCase):
         (self.home / "sessions" / "nested").mkdir(parents=True)
         (self.home / "archived_sessions").mkdir()
         self.state = self.home / "state.sqlite3"
+        self.whoami = mock.patch(
+            "openai_export.fetch_whoami",
+            return_value={
+                "tenant": "t-0123456789abcdef",
+                "scope": "ingest",
+                "expires_at": "2099-01-01T00:00:00.000Z",
+            },
+        )
+        self.whoami.start()
 
     def tearDown(self):
+        self.whoami.stop()
         self.tmp.cleanup()
 
     def write_session(self, rel, lines):
@@ -1047,6 +1058,162 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(
             plistlib.loads(output.read_bytes())["Label"], "local.codex.collector"
         )
+
+
+    def test_v5_thread_is_gap(self):
+        self.write_session(
+            "sessions/v5.jsonl",
+            [
+                {
+                    "type": "session_meta",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "payload": {"id": "078c606a-cc39-5515-9d4b-746e270967ab"},
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "payload": {"message": "synthetic"},
+                },
+            ],
+        )
+        result = collector.collect(
+            self.home, "http://127.0.0.1:9", self.state, dry_run=True
+        )
+        self.assertEqual(result["records"], 0)
+        self.assertGreaterEqual(result["gaps"], 1)
+
+    def test_collect_pins_tenant(self):
+        self.whoami.stop()
+        self.write_session(
+            "sessions/pin.jsonl",
+            [
+                {
+                    "type": "session_meta",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "payload": {"id": "550e8400-e29b-41d4-a716-446655440001"},
+                },
+                {
+                    "type": "user",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "payload": {"message": "synthetic"},
+                },
+            ],
+        )
+        tenants = iter(("t-aaaaaaaaaaaaaaaa", "t-bbbbbbbbbbbbbbbb"))
+        uploads = []
+
+        def whoami(_url, _token):
+            return {
+                "tenant": next(tenants),
+                "scope": "ingest",
+                "expires_at": "2099-01-01T00:00:00.000Z",
+            }
+
+        def upload(_url, _token, payload):
+            uploads.append(payload)
+            return 200, {"stored": len(payload["records"]), "duplicate": 0}
+
+        with (
+            mock.patch("openai_export.fetch_whoami", side_effect=whoami),
+            mock.patch.object(collector, "_upload", side_effect=upload),
+            mock.patch.object(collector, "_scanner", return_value=[]),
+        ):
+            collector.collect(
+                self.home, "http://127.0.0.1:9", self.state, token="synthetic"
+            )
+            with self.assertRaises(RuntimeError):
+                collector.collect(
+                    self.home, "http://127.0.0.1:9", self.state, token="synthetic"
+                )
+            self.assertEqual(len(uploads), 1)
+            stderr = io.StringIO()
+
+            def other_tenant(_url, _token):
+                return {
+                    "tenant": "t-bbbbbbbbbbbbbbbb",
+                    "scope": "ingest",
+                    "expires_at": "2099-01-01T00:00:00.000Z",
+                }
+
+            with (
+                mock.patch("openai_export.fetch_whoami", side_effect=other_tenant),
+                redirect_stderr(stderr),
+            ):
+                code = collector.main(
+                    [
+                        "collect",
+                        "--codex-home",
+                        str(self.home),
+                        "--url",
+                        "http://127.0.0.1:9",
+                        "--state",
+                        str(self.state),
+                    ]
+                )
+        self.assertEqual(code, 1)
+        self.assertEqual(stderr.getvalue(), "state belongs to a different tenant\n")
+        self.assertEqual(len(uploads), 1)
+
+
+class SanitizeFindingTests(unittest.TestCase):
+    def test_sanitize_findings_out(self):
+        secret = "".join(("syn", "thetic", "-secret-", "marker"))
+
+        def scanner(text):
+            if secret in text:
+                return [{"RuleID": "generic-rule", "Secret": secret}]
+            return []
+
+        value = {"text": f"a {secret} b {secret}", "token": {secret: "ok"}}
+        findings = []
+        cleaned, changed = collector.sanitize(value, scanner, findings)
+        self.assertGreaterEqual(changed, 3)
+        self.assertNotIn(secret, json.dumps(cleaned))
+        self.assertIn(collector.REDACTION, cleaned["text"])
+        self.assertEqual(
+            [item[1] for item in findings if item[1].startswith("/text")],
+            ["/text", "/text"],
+        )
+        self.assertTrue(any(item[1].endswith("~k") for item in findings))
+        self.assertTrue(all(item[0] == "generic-rule" for item in findings))
+        self.assertTrue(all(isinstance(item[2], str) for item in findings))
+
+        plain, plain_changed = collector.sanitize(value, scanner)
+        self.assertEqual(plain, cleaned)
+        self.assertEqual(plain_changed, changed)
+
+        def unmapped(_text):
+            return [{"RuleID": "generic-rule", "Secret": "not-present-here"}]
+
+        with self.assertRaises(collector.UnmappableFinding) as mapped:
+            collector.sanitize({"text": "hello"}, unmapped)
+        self.assertIsInstance(mapped.exception, collector.ScannerError)
+
+        def duplicate(text):
+            if "ZZ" in text:
+                return [{"RuleID": "generic-rule", "Secret": "ZZ"}]
+            return []
+
+        with self.assertRaises(collector.UnmappableFinding):
+            collector.sanitize({"ZZ": 1, collector.REDACTION: 2}, duplicate)
+
+        calls = {"n": 0}
+
+        def remains(text):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return [{"RuleID": "generic-rule", "Secret": secret}]
+            return [{"RuleID": "generic-rule", "Secret": secret}]
+
+        with self.assertRaises(collector.UnmappableFinding):
+            collector.sanitize({"text": secret}, remains)
+
+        def broken(_text):
+            raise collector.ScannerError("secret scanner failed")
+
+        with self.assertRaises(collector.ScannerError) as crashed:
+            collector.sanitize({"text": "hello"}, broken)
+        self.assertNotIsInstance(crashed.exception, collector.UnmappableFinding)
 
 
 if __name__ == "__main__":

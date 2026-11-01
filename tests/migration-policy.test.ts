@@ -6,20 +6,33 @@ import test from 'node:test';
 // An early lint only. The database role's privileges are the security control.
 
 const migrations = join(process.cwd(), 'db', 'migrations');
+// Each pattern must match at the start of a statement, after comments are
+// removed, so column names such as `SET role = ...` and comments do not count.
 const forbidden = [
-  /\bcreate\s+extension\b/i,
-  /\bcreate\s+(?:role|user)\b/i,
-  /\balter\s+(?:role|user|system)\b/i,
-  /\bcreate\s+database\b/i,
-  /\balter\s+database\b/i,
-  /\bgrant\b[^;]*\bto\s+public\b/i,
-  /\bcopy\b[^;]*\bprogram\b/i,
-  /\bcreate\s+language\b/i,
-  /\bset\s+(?:role|session\s+authorization)\b/i,
+  /^create\s+extension\b/i,
+  /^create\s+(?:role|user)\b/i,
+  /^alter\s+(?:role|user|system)\b/i,
+  /^create\s+database\b/i,
+  /^alter\s+database\b/i,
+  /^grant\b[\s\S]*\bto\s+public\b/i,
+  /^copy\b[\s\S]*\bprogram\b/i,
+  /^create\s+(?:or\s+replace\s+)?(?:trusted\s+)?(?:procedural\s+)?language\b/i,
+  /^set\s+(?:(?:session|local)\s+)?(?:role|session\s+authorization)\b/i,
 ];
 
+function statements(sql: string): string[] {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ')
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
 function hasForbiddenStatement(sql: string): boolean {
-  return forbidden.some((pattern) => pattern.test(sql));
+  return statements(sql).some((statement) =>
+    forbidden.some((pattern) => pattern.test(statement)),
+  );
 }
 
 test('migration policy matcher rejects privileged SQL', () => {
@@ -35,13 +48,22 @@ test('migration policy matcher rejects privileged SQL', () => {
     'CREATE LANGUAGE plpgsql;',
     'SET ROLE app;',
     'SET SESSION AUTHORIZATION app;',
+    'SET LOCAL ROLE app;',
+    'SELECT 1; CREATE ROLE app;',
+    '-- a note\nCREATE ROLE app;',
+    '/* a note */ create role app;',
   ]) {
     assert.equal(hasForbiddenStatement(sql), true, sql);
   }
-  assert.equal(
-    hasForbiddenStatement('CREATE TABLE pachigraph.example (id int);'),
-    false,
-  );
+  for (const sql of [
+    'CREATE TABLE pachigraph.example (id int);',
+    "UPDATE pachigraph.members SET role = 'owner';",
+    'ALTER TABLE pachigraph.members ADD COLUMN role text;',
+    '-- CREATE ROLE app;\nSELECT 1;',
+    '/* GRANT SELECT ON t TO PUBLIC; */ SELECT 1;',
+  ]) {
+    assert.equal(hasForbiddenStatement(sql), false, sql);
+  }
 });
 
 test('SQL migrations avoid privileged statements', () => {

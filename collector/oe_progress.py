@@ -27,6 +27,11 @@ class Progress:
             self.db = sqlite3.connect(":memory:")
         else:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            if not self.path.exists():
+                descriptor = os.open(
+                    self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+                )
+                os.close(descriptor)
             self.db = sqlite3.connect(str(self.path))
             os.chmod(self.path, 0o600)
         self.db.execute(

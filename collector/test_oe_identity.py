@@ -1,6 +1,5 @@
 import unittest
 import uuid
-from collections import Counter
 
 import oe_identity
 
@@ -19,12 +18,10 @@ class IdentityTests(unittest.TestCase):
             oe_identity.chunk_id("conversation-alpha", "node-1", 0),
             "4a82f98fb8023082eabdf95a0fc407ff78924e60324ad1111a6c082d903906dd",
         )
-        counters = Counter()
         with self.assertRaises(oe_identity.BadId):
             oe_identity.thread_id("bad\nid")
         with self.assertRaises(oe_identity.BadId):
             oe_identity.record_id("ok", "bad\nid")
-        self.assertEqual(counters["bad_id"], 0)
 
 
 if __name__ == "__main__":

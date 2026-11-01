@@ -61,7 +61,7 @@ class QuarantineStoreTests(unittest.TestCase):
                 with self.assertRaises(oe_qstore.QuarantineError):
                     oe_qstore.Store(state)
 
-            os.chmod(directory, 0o707)
+            os.chmod(directory, 0o770)
             try:
                 with self.assertRaises(oe_qstore.QuarantineError):
                     oe_qstore.Store(state)
@@ -100,6 +100,33 @@ class QuarantineStoreTests(unittest.TestCase):
                 "delete",
             )
             self.assertFalse(Path(str(store.path) + "-wal").exists())
+            store.close()
+
+    def test_same_path_keeps_fingerprints_and_first_rule(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = oe_qstore.Store(self._state(directory))
+            original = {"text": _secret()}
+            kwargs = dict(salt=b"s" * 32, tenant="t", thread_id="th", record_id="r", conversation_id="c", node_id="n")
+            store.put_item(original, [
+                {"rule": "first", "path": "/text#0", "fp": "a" * 32},
+                {"rule": "second", "path": "/text#0", "fp": "b" * 32},
+            ], **kwargs)
+            item = store.db.execute("SELECT item_sha FROM items").fetchone()[0]
+            store.put_item(original, [{"rule": "later", "path": "/text#0", "fp": "a" * 32}], **kwargs)
+            rows = store.db.execute("SELECT rule, fp FROM findings ORDER BY fp").fetchall()
+            self.assertEqual([(row["rule"], row["fp"]) for row in rows], [("first", "a" * 32), ("second", "b" * 32)])
+            self.assertEqual(store.db.execute("SELECT item_sha FROM items").fetchone()[0], item)
+            store.close()
+
+    def test_list_findings_does_not_return_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = oe_qstore.Store(self._state(directory))
+            original = {"text": _secret()}
+            item = store.put_item(original, [{"rule": "generic", "path": "/text#0", "fp": "a" * 32}], salt=b"s" * 32, tenant="t", thread_id="th", record_id="r", conversation_id="c", node_id="n")
+            rows = store.list_findings()
+            self.assertNotIn("original", rows[0])
+            self.assertNotIn(_secret(), str(rows))
+            self.assertEqual(store.get_original(item), '{"text":"' + _secret() + '"}')
             store.close()
 
     def test_local_quarantine_purge(self):

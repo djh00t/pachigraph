@@ -62,7 +62,9 @@ def _format(digits: str, exponent: int) -> str:
     return f"{mantissa}e{sign}{abs(scientific)}"
 
 
-def canonical(value) -> str:
+def canonical(value, depth: int = 0) -> str:
+    if depth > 64:
+        raise ValueError("record nesting exceeds 64 levels")
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -76,15 +78,15 @@ def canonical(value) -> str:
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     if isinstance(value, list):
-        return "[" + ",".join(canonical(item) for item in value) + "]"
+        return "[" + ",".join(canonical(item, depth + 1) for item in value) + "]"
     if isinstance(value, dict):
-        keys = sorted(value, key=lambda key: str(key).encode("utf-16-be"))
+        keys = sorted(value, key=lambda key: key.encode("utf-16-be"))
         return (
             "{"
             + ",".join(
-                json.dumps(str(key), ensure_ascii=False, separators=(",", ":"))
+                json.dumps(key, ensure_ascii=False, separators=(",", ":"))
                 + ":"
-                + canonical(value[key])
+                + canonical(value[key], depth + 1)
                 for key in keys
             )
             + "}"

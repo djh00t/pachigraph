@@ -159,7 +159,7 @@ class Store:
         current = time.time() if now is None else now
         rows = []
         for row in self.db.execute(
-            """SELECT i.created_at, f.rule, f.path, f.fp, i.thread_id, i.original, i.item_sha
+            """SELECT i.created_at, f.rule, f.path, f.fp, i.thread_id, i.item_sha
                  FROM findings f JOIN items i ON i.item_sha = f.item_sha
                 ORDER BY i.created_at, f.path, f.fp"""
         ):
@@ -171,7 +171,13 @@ class Store:
                     "path": row["path"],
                     "fp": row["fp"],
                     "thread_id": row["thread_id"],
-                    "original": row["original"],
+                    "item_sha": row["item_sha"],
                 }
             )
         return rows
+
+    def get_original(self, item_sha: str):
+        row = self.db.execute(
+            "SELECT original FROM items WHERE item_sha = ?", (item_sha,)
+        ).fetchone()
+        return None if row is None else row["original"]

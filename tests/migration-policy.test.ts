@@ -6,17 +6,19 @@ import test from 'node:test';
 // An early lint only. The database role's privileges are the security control.
 
 const migrations = join(process.cwd(), 'db', 'migrations');
-// Each pattern must match at the start of a statement, after comments are
-// removed, so column names such as `SET role = ...` and comments do not count.
+// Only the SET pattern is anchored at the start of a statement, after comments
+// are removed, so a column update such as `UPDATE ... SET role = ...` does not
+// count. The other patterns match anywhere in a statement, so privileged SQL
+// wrapped in a DO block or EXECUTE string is still caught.
 const forbidden = [
-  /^create\s+extension\b/i,
-  /^create\s+(?:role|user)\b/i,
-  /^alter\s+(?:role|user|system)\b/i,
-  /^create\s+database\b/i,
-  /^alter\s+database\b/i,
-  /^grant\b[\s\S]*\bto\s+public\b/i,
-  /^copy\b[\s\S]*\bprogram\b/i,
-  /^create\s+(?:or\s+replace\s+)?(?:trusted\s+)?(?:procedural\s+)?language\b/i,
+  /\bcreate\s+extension\b/i,
+  /\bcreate\s+(?:role|user)\b/i,
+  /\balter\s+(?:role|user|system)\b/i,
+  /\bcreate\s+database\b/i,
+  /\balter\s+database\b/i,
+  /\bgrant\b[\s\S]*\bto\s+public\b/i,
+  /\bcopy\b[\s\S]*\bprogram\b/i,
+  /\bcreate\s+(?:or\s+replace\s+)?(?:trusted\s+)?(?:procedural\s+)?language\b/i,
   /^set\s+(?:(?:session|local)\s+)?(?:role|session\s+authorization)\b/i,
 ];
 
@@ -52,6 +54,11 @@ test('migration policy matcher rejects privileged SQL', () => {
     'SELECT 1; CREATE ROLE app;',
     '-- a note\nCREATE ROLE app;',
     '/* a note */ create role app;',
+    "DO $$ BEGIN EXECUTE 'CREATE ROLE app'; END $$;",
+    'DO $$ BEGIN CREATE ROLE app; END $$;',
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA pachigraph GRANT SELECT ON TABLES TO PUBLIC;',
+    'CREATE TRUSTED LANGUAGE plsample;',
+    'CREATE OR REPLACE PROCEDURAL LANGUAGE plsample;',
   ]) {
     assert.equal(hasForbiddenStatement(sql), true, sql);
   }

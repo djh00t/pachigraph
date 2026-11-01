@@ -33,6 +33,12 @@ before(async () => {
   await admin.query(
     `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '${password}'`,
   );
+  // PostgreSQL 16+ gives a CREATEROLE creator only ADMIN on the new role.
+  // INHERIT and SET let a non-superuser test login create the schema for the
+  // role and read it; a superuser already has both.
+  await admin.query(
+    `GRANT ${role} TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`,
+  );
   isolated = poolFor(null, null);
   await isolated.query(
     `REVOKE CREATE, TEMPORARY ON DATABASE ${database} FROM PUBLIC`,

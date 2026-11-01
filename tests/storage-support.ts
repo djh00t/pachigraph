@@ -17,7 +17,12 @@ export function testPool() {
 }
 
 export async function clearStorage(pool: Pool) {
-  await pool.query(
-    'TRUNCATE pachigraph.history_records, pachigraph.thread_tombstones, pachigraph.api_keys',
-  );
+  await pool.query(`TRUNCATE
+    pachigraph.pending_deletes,
+    pachigraph.history_records,
+    pachigraph.thread_tombstones,
+    pachigraph.api_keys,
+    pachigraph.tenant_members,
+    pachigraph.tenant_usage,
+    pachigraph.tenants`);
 }

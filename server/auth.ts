@@ -111,6 +111,24 @@ export async function verifyUser(
   }
 }
 
+export async function boundTenant(
+  pool: Pool,
+  subject: string,
+  tenantId: string,
+): Promise<TenantId | null> {
+  if (!subject.trim() || !TENANT_ID.test(tenantId)) return null;
+  const result = await pool.query(
+    `SELECT 1
+     FROM pachigraph.tenant_members m
+     JOIN pachigraph.tenants t ON t.id = m.tenant_id AND t.active
+     WHERE m.subject = $1 AND m.tenant_id = $2
+       AND length(trim(m.tenant_id)) > 0`,
+    [subject, tenantId],
+  );
+  if (!result.rowCount) return null;
+  return tenantId as TenantId;
+}
+
 export async function resolveTenant(
   pool: Pool,
   subject: string,

@@ -261,11 +261,20 @@ def numbers_document() -> str:
     big = "4" * 400
     huge = "5" * 5000
     secret = fake_secret()
+    parts = (
+        '["text-\\ud800",1.5,1e400,-1e400,'
+        + big
+        + ","
+        + huge
+        + ',NaN,Infinity,-Infinity,"'
+        + secret
+        + '"]'
+    )
     return (
         '[{"id":"id-\\ud800","title":"t","create_time":1,"update_time":1,'
         '"current_node":"n","mapping":{"\\ud800":{"id":"n","parent":null,"children":[],'
         '"message":{"id":"m","author":{"role":"user"},"recipient":"all",'
-        '"content":{"content_type":"text","parts":["text-\\ud800",1.5,'
-        f"1e400,-1e400,{big},{huge},NaN,Infinity,-Infinity,\"{secret}\"]}},"
-        '"create_time":1700000000,"metadata":{"model_slug":"slug-\\ud800"}}}}]'
+        '"content":{"content_type":"text","parts":'
+        + parts
+        + '},"create_time":1700000000,"metadata":{"model_slug":"slug-\\ud800"}}}}}]'
     )

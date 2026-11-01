@@ -424,4 +424,64 @@ test('a legacy object key stays fetchable and a resend is a duplicate', async ()
     duplicate: 1,
   });
   assert.equal(objects.objects.get(legacyKey), current[1]);
+  assert.equal(
+    [...objects.objects.keys()].some((key) => key.startsWith('t/')),
+    false,
+  );
+});
+
+test('quota rejects a batch before any object is written', async () => {
+  const { history, objects } = setup();
+  await pool.query(
+    'UPDATE pachigraph.tenants SET max_records = 1 WHERE id = $1',
+    [TENANT_A],
+  );
+  assert.deepEqual(await history.ingest(tenantA, input()), {
+    stored: 1,
+    duplicate: 0,
+  });
+  const before = objects.objects.size;
+  await assert.rejects(history.ingest(tenantA, input('another revision')), {
+    status: 507,
+    message: 'Storage quota exceeded',
+  });
+  assert.equal(objects.objects.size, before);
+  assert.deepEqual(await history.ingest(tenantA, input()), {
+    stored: 0,
+    duplicate: 1,
+  });
+  assert.equal(objects.objects.size, before);
+  const usage = await pool.query<{ records: string; bytes: string }>(
+    'SELECT records::text, bytes::text FROM pachigraph.tenant_usage WHERE tenant_id = $1',
+    [TENANT_A],
+  );
+  const stored = await pool.query<{ stored_bytes: string }>(
+    'SELECT stored_bytes::text FROM pachigraph.history_records WHERE tenant_id = $1',
+    [TENANT_A],
+  );
+  assert.equal(usage.rows[0].records, '1');
+  assert.equal(usage.rows[0].bytes, stored.rows[0].stored_bytes);
+  assert.deepEqual(
+    await history.ingest(tenantB, input('beta stays writable')),
+    {
+      stored: 1,
+      duplicate: 0,
+    },
+  );
+  await pool.query(
+    'UPDATE pachigraph.tenants SET max_records = 1000000, max_bytes = $2 WHERE id = $1',
+    [TENANT_A, Number(stored.rows[0].stored_bytes)],
+  );
+  await assert.rejects(history.ingest(tenantA, input('over the byte cap')), {
+    status: 507,
+  });
+  assert.deepEqual(await history.deleteThread(tenantA, THREAD), {
+    deleted: true,
+  });
+  const freed = await pool.query<{ records: string; bytes: string }>(
+    'SELECT records::text, bytes::text FROM pachigraph.tenant_usage WHERE tenant_id = $1',
+    [TENANT_A],
+  );
+  assert.equal(freed.rows[0].records, '0');
+  assert.equal(freed.rows[0].bytes, '0');
 });

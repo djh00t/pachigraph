@@ -11,6 +11,7 @@ from pathlib import Path
 
 import collector
 import oe_batch
+import oe_chunk
 import oe_envelope
 import oe_identity
 import oe_parse
@@ -316,6 +317,36 @@ def _conversation(
         if oe_envelope.is_oversized(
             item["record_id"], sanitized["record"], sanitized["text"], sanitized["timestamp"]
         ):
+            chunks = None
+            if item["visibility"] == "visible":
+                chunks = oe_chunk.chunk_node(
+                    item["conversation_id"],
+                    item["node_id"],
+                    sanitized["record"],
+                    sanitized["text"],
+                    sanitized["timestamp"],
+                    item["visibility"],
+                )
+            if chunks:
+                counters["chunked"] += 1
+                node_revision = oe_envelope.revision(
+                    sanitized["record"], sanitized["text"], sanitized["timestamp"]
+                )
+                for chunk in chunks:
+                    ready.append(
+                        {
+                            "upload": {
+                                "id": chunk["id"],
+                                "timestamp": chunk["timestamp"],
+                                "text": chunk["text"],
+                                "record": chunk["record"],
+                            },
+                            "node_key": item["node_key"],
+                            "scan_key": item["scan_key"],
+                            "revision": node_revision,
+                        }
+                    )
+                continue
             counters["oversized"] += 1
             continue
         ready.append(

@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { sessionPrincipal, type Principal, type VerifiedUser } from './auth.ts';
+import { handleMCP } from './mcp.ts';
 import { fail, handleAPI, type HistoryAPI } from './http.ts';
 
 type KeyAPI = {
@@ -22,4 +23,17 @@ export async function dispatchAPI(
     ? await sessionPrincipal(pool, user)
     : await keys.resolve(request);
   return handleAPI(request, principal, history);
+}
+
+export async function dispatchMCP(
+  request: Request,
+  user: VerifiedUser | null,
+  keys: KeyAPI,
+  history: HistoryAPI,
+  pool: Pool,
+) {
+  const principal = user
+    ? await sessionPrincipal(pool, user)
+    : await keys.resolve(request);
+  return handleMCP(request, principal, history);
 }

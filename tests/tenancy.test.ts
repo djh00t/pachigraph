@@ -10,8 +10,9 @@ import {
   type Principal,
   type VerifiedUser,
 } from '../server/auth.ts';
-import { dispatchAPI } from '../server/dispatch.ts';
+import { dispatchAPI, dispatchMCP } from '../server/dispatch.ts';
 import { createHistory } from '../server/history.ts';
+import { handleMCP } from '../server/mcp.ts';
 import { WhoamiResponse, handleAPI, safeResponse } from '../server/http.ts';
 import { clearStorage, seedTenant, testPool } from './storage-support.ts';
 
@@ -275,4 +276,126 @@ test('a session ingest through dispatch is rejected and a key ingest is not', as
   assert.equal(body.scope, 'ingest');
   assert.equal(body.tenant, TENANT_A);
   assert.equal(allowed.headers.get('cache-control'), 'no-store');
+});
+
+function rpc(method: string, params: unknown = {}) {
+  return new Request('https://site.test/mcp', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+}
+
+test('MCP search fetch and status stay inside the caller tenant', async () => {
+  const objects = new MemoryObjects();
+  const history = createHistory(pool, objects);
+  const { sessionA, sessionB } = await principals();
+  await history.ingest(sessionB.tenant, {
+    thread_id: THREAD,
+    records: [
+      {
+        id: SOURCE,
+        timestamp: '2026-09-05T01:02:03.000Z',
+        text: 'beta only token xylophone',
+        record: { side: 'beta' },
+      },
+    ],
+  });
+  const hidden = (await history.search(sessionB.tenant, 'xylophone'))
+    .results[0];
+  const keys = createKeys(pool);
+  const read = (await (
+    await keys.manage(
+      request('/api/keys', 'POST', undefined, { scope: 'read', days: 2 }),
+      sessionA,
+    )
+  ).json()) as { key: string };
+  const listed = await handleMCP(rpc('tools/list'), sessionA, history);
+  assert.equal(listed.status, 200);
+  const searchBody = JSON.stringify(
+    await (
+      await handleMCP(
+        rpc('tools/call', {
+          name: 'search',
+          arguments: { query: 'xylophone' },
+        }),
+        sessionA,
+        history,
+      )
+    ).json(),
+  );
+  assert.equal(searchBody.includes('beta only token'), false);
+  const fetchBody = JSON.stringify(
+    await (
+      await handleMCP(
+        rpc('tools/call', { name: 'fetch', arguments: { id: hidden.id } }),
+        sessionA,
+        history,
+      )
+    ).json(),
+  );
+  assert.equal(fetchBody.includes('beta only token'), false);
+  const statusBody = JSON.stringify(
+    await (
+      await handleMCP(
+        rpc('tools/call', { name: 'status', arguments: {} }),
+        sessionA,
+        history,
+      )
+    ).json(),
+  );
+  assert.ok(
+    /records\\?":0/.test(statusBody),
+    statusBody.slice(0, 800),
+  );
+
+  const throughDispatch = await safeResponse(() =>
+    dispatchMCP(rpc('tools/list'), profile('subject-a'), keys, history, pool),
+  );
+  assert.equal(throughDispatch.status, 200);
+  const unbound = await safeResponse(() =>
+    dispatchMCP(
+      rpc('tools/list'),
+      profile('subject-missing'),
+      keys,
+      history,
+      pool,
+    ),
+  );
+  assert.equal(unbound.status, 401);
+  const viaKey = await safeResponse(() =>
+    dispatchMCP(
+      new Request('https://site.test/mcp', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + read.key,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'search', arguments: { query: 'xylophone' } },
+        }),
+      }),
+      null,
+      keys,
+      history,
+      pool,
+    ),
+  );
+  assert.equal(
+    JSON.stringify(await viaKey.json()).includes('xylophone'),
+    false,
+  );
+  const route = await readFile(
+    new URL('../app/mcp/route.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(route, /dispatchMCP\(/);
+  assert.equal(route.includes('userId'), false);
 });

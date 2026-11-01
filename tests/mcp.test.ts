@@ -2,7 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Principal, TenantId } from '../server/auth.ts';
 import { handleMCP } from '../server/mcp.ts';
+
+const TENANT = 't-aaaaaaaaaaaaaaaa' as TenantId;
+const caller: Principal = {
+  tenant: TENANT,
+  subject: 'subject-a',
+  scope: 'session',
+  expiresAt: new Date('2026-04-01T00:00:00.000Z'),
+};
+const ingestCaller: Principal = { ...caller, scope: 'ingest' };
 
 type RPCReply = {
   result: {
@@ -69,7 +79,7 @@ test('MCP rejects absent owners, foreign origins and malformed bodies', async ()
     (
       await handleMCP(
         rpcRequest('tools/list', {}, { origin: 'https://evil.example' }),
-        'owner',
+        caller,
         history,
       )
     ).status,
@@ -80,7 +90,7 @@ test('MCP rejects absent owners, foreign origins and malformed bodies', async ()
     headers: { 'content-type': 'application/json' },
     body: '{',
   });
-  assert.equal((await handleMCP(malformed, 'owner', history)).status, 400);
+  assert.equal((await handleMCP(malformed, caller, history)).status, 400);
 });
 
 test('MCP lists only read tools and binds every call to the authenticated owner', async () => {
@@ -90,7 +100,7 @@ test('MCP lists only read tools and binds every call to the authenticated owner'
       capabilities: {},
       clientInfo: { name: 'test', version: '1' },
     }),
-    'bound-owner',
+    caller,
     history,
   );
   assert.equal(initialized.status, 200);
@@ -99,11 +109,7 @@ test('MCP lists only read tools and binds every call to the authenticated owner'
     'pachigraph',
   );
 
-  const listed = await handleMCP(
-    rpcRequest('tools/list'),
-    'bound-owner',
-    history,
-  );
+  const listed = await handleMCP(rpcRequest('tools/list'), caller, history);
   assert.deepEqual(
     ((await listed.json()) as RPCReply).result.tools
       .map((tool) => tool.name)
@@ -118,16 +124,16 @@ test('MCP lists only read tools and binds every call to the authenticated owner'
   ] as const) {
     const response = await handleMCP(
       rpcRequest('tools/call', { name, arguments: args }),
-      'bound-owner',
+      caller,
       history,
     );
     const result = ((await response.json()) as RPCReply).result;
     assert.equal(result.isError, undefined);
   }
   assert.deepEqual(calls.slice(-3), [
-    ['search', 'bound-owner', 'known'],
-    ['fetch', 'bound-owner', 'record'],
-    ['status', 'bound-owner'],
+    ['search', TENANT, 'known'],
+    ['fetch', TENANT, 'record'],
+    ['status', TENANT],
   ]);
 });
 
@@ -143,7 +149,7 @@ test('MCP tool errors hide internal storage details', async () => {
       name: 'search',
       arguments: { query: 'known' },
     }),
-    'owner',
+    caller,
     broken,
   );
   const result = ((await response.json()) as RPCReply).result;
@@ -157,7 +163,7 @@ test('maintained SDK client completes the stateless JSON lifecycle', async () =>
     new URL('https://history.example/mcp'),
     {
       fetch: async (url, init) =>
-        handleMCP(new Request(url, init), 'sdk-owner', history),
+        handleMCP(new Request(url, init), caller, history),
     },
   );
   try {
@@ -171,8 +177,18 @@ test('maintained SDK client completes the stateless JSON lifecycle', async () =>
       arguments: { query: 'known' },
     });
     assert.ok(JSON.stringify(result.content).includes('known passage'));
-    assert.deepEqual(calls.at(-1), ['search', 'sdk-owner', 'known']);
+    assert.deepEqual(calls.at(-1), ['search', TENANT, 'known']);
   } finally {
     await client.close();
   }
+});
+
+test('an ingest principal cannot call MCP', async () => {
+  const response = await handleMCP(
+    rpcRequest('tools/list'),
+    ingestCaller,
+    history,
+  );
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'Scope not allowed');
 });

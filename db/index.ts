@@ -25,6 +25,10 @@ function objects() {
   return sharedObjects;
 }
 
+export function getPool() {
+  return pool();
+}
+
 export function getKeys() {
   return createKeys(pool());
 }

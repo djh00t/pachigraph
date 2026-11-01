@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { after, before, beforeEach, test } from 'node:test';
 
 import { resolveTenant, type TenantId } from '../server/auth.ts';
-import { createHistory } from '../server/history.ts';
+import { createHistory, retryPendingDeletes } from '../server/history.ts';
 import { clearStorage, seedTenant, testPool } from './storage-support.ts';
 
 class MemoryObjects {
@@ -159,26 +160,77 @@ test('object and database failures remain retryable', async () => {
   });
 });
 
-test('deletion commits its tombstone before retryable object cleanup', async () => {
+test('a storage failure keeps pending deletes and the next delete removes them', async () => {
   const { history, objects } = setup();
   await history.ingest(tenantA, input());
-  objects.failNextDelete = true;
-  await assert.rejects(history.deleteThread(tenantA, THREAD), /cleanup/);
-  await assert.rejects(history.ingest(tenantA, input()), { status: 410 });
-  assert.equal(
-    Number(
-      (
-        await pool.query(
-          'SELECT count(*) AS count FROM pachigraph.thread_tombstones',
-        )
-      ).rows[0].count,
-    ),
-    1,
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    logged.push(args.map(String).join(' '));
+  };
+  try {
+    objects.failNextDelete = true;
+    assert.deepEqual(await history.deleteThread(tenantA, THREAD), {
+      deleted: true,
+    });
+  } finally {
+    console.error = original;
+  }
+  assert.equal(objects.objects.size, 1);
+  const pending = await pool.query<{ count: string }>(
+    'SELECT count(*)::text AS count FROM pachigraph.pending_deletes',
   );
+  assert.equal(Number(pending.rows[0].count) > 0, true);
+  assert.equal(
+    (await history.status(tenantA)).pending_deletes,
+    Number(pending.rows[0].count),
+  );
+  assert.equal(logged.join('\n').includes(TENANT_A), false);
+  assert.equal(logged.join('\n').includes(THREAD), false);
+  assert.match(logged.join('\n'), /count=\d+/);
+  await assert.rejects(history.ingest(tenantA, input()), { status: 410 });
   assert.deepEqual(await history.deleteThread(tenantA, THREAD), {
     deleted: true,
   });
   assert.equal(objects.objects.size, 0);
+  assert.equal((await history.status(tenantA)).pending_deletes, 0);
+});
+
+test('restart retry removes a legacy prefix after the rows are gone', async () => {
+  const { history, objects } = setup();
+  await history.ingest(tenantA, input());
+  const legacyKey = `${sha256('subject-a')}/${THREAD}/${SOURCE}/legacy`;
+  objects.objects.set(legacyKey, '{"legacy":true}');
+  await pool.query(
+    'UPDATE pachigraph.history_records SET object_key = $1 WHERE tenant_id = $2',
+    [legacyKey, TENANT_A],
+  );
+  assert.deepEqual(await history.deleteThread(tenantA, THREAD), {
+    deleted: true,
+  });
+  assert.equal(objects.objects.has(legacyKey), false);
+  assert.equal((await history.status(tenantA)).pending_deletes, 0);
+
+  const stranded = `${sha256('subject-a')}/${THREAD}/stranded`;
+  objects.objects.set(stranded, '{"stranded":true}');
+  await pool.query(
+    `INSERT INTO pachigraph.pending_deletes (tenant_id, thread_id, prefix)
+     VALUES ($1, $2, $3)`,
+    [TENANT_A, THREAD, `${sha256('subject-a')}/${THREAD}/`],
+  );
+  await retryPendingDeletes(pool, objects, tenantA);
+  assert.equal(objects.objects.has(stranded), false);
+  assert.equal((await history.status(tenantA)).pending_deletes, 0);
+});
+
+test('initializeStorage retries pending deletes after migrate', async () => {
+  const source = await readFile(
+    new URL('../db/index.ts', import.meta.url),
+    'utf8',
+  );
+  const migrateAt = source.indexOf('await migrate(');
+  const retryAt = source.indexOf('await retryPendingDeletes(');
+  assert.ok(migrateAt >= 0 && retryAt > migrateAt);
 });
 
 test('fetch, search, and deletion remain tenant scoped', async () => {

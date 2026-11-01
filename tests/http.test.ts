@@ -108,6 +108,27 @@ test('bounded reader rejects chunked oversize, bad JSON and false content-length
     status: 400,
   });
 });
+test('storage quota is reported as 507 rather than unavailable', async () => {
+  const response = await handleAPI(
+    request('/api/ingest', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    'reader',
+    {
+      ...history,
+      ingest: async () => {
+        throw Object.assign(new Error('bucket detail'), { status: 507 });
+      },
+    },
+  );
+  assert.equal(response.status, 507);
+  const body = await response.text();
+  assert.equal(body.includes('Storage quota exceeded'), true);
+  assert.equal(body.includes('bucket detail'), false);
+  assert.equal(body.includes('Temporarily unavailable'), false);
+});
 test('owner deletion uses explicit DELETE and same-origin guard', async () => {
   const denied = await handleAPI(
     request('/api/thread?id=thread', {

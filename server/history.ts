@@ -216,8 +216,63 @@ export function createHistory(
         if (tombstone.rowCount)
           throw new HistoryError(410, 'history was deleted');
 
-        let stored = 0;
+        const existing = await client.query<{
+          source_id: string;
+          revision_id: string;
+        }>(
+          `SELECT source_id, revision_id
+           FROM pachigraph.history_records
+           WHERE tenant_id = $1 AND thread_id = $2
+             AND (source_id, revision_id) IN (
+               SELECT * FROM unnest($3::text[], $4::text[])
+             )`,
+          [
+            tenant,
+            input.thread_id,
+            records.map((record) => record.item.id),
+            records.map((record) => record.revision),
+          ],
+        );
+        const seen = new Set(
+          existing.rows.map((row) => `${row.source_id}\n${row.revision_id}`),
+        );
+        const fresh = [];
         for (const record of records) {
+          const key = `${record.item.id}\n${record.revision}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          fresh.push(record);
+        }
+        const usage = await client.query<{
+          records: string;
+          bytes: string;
+          max_records: string;
+          max_bytes: string;
+        }>(
+          `SELECT u.records::text, u.bytes::text,
+                  t.max_records::text, t.max_bytes::text
+           FROM pachigraph.tenant_usage u
+           JOIN pachigraph.tenants t ON t.id = u.tenant_id
+           WHERE u.tenant_id = $1
+           FOR UPDATE OF u`,
+          [tenant],
+        );
+        const quota = usage.rows[0];
+        if (!quota) throw new HistoryError(503, 'quota unavailable');
+        const addBytes = fresh.reduce(
+          (sum, record) => sum + record.storedBytes,
+          0,
+        );
+        if (
+          Number(quota.records) + fresh.length > Number(quota.max_records) ||
+          Number(quota.bytes) + addBytes > Number(quota.max_bytes)
+        ) {
+          throw new HistoryError(507, 'Storage quota exceeded');
+        }
+
+        let stored = 0;
+        let storedBytes = 0;
+        for (const record of fresh) {
           // The object is the canonical record, including redaction
           // fingerprints. stored_bytes counts the envelope.
           await objects.putImmutable(record.key, record.record);
@@ -242,7 +297,18 @@ export function createHistory(
               new Date().toISOString(),
             ],
           );
-          stored += result.rowCount ?? 0;
+          if (result.rowCount) {
+            stored += result.rowCount;
+            storedBytes += record.storedBytes;
+          }
+        }
+        if (stored) {
+          await client.query(
+            `UPDATE pachigraph.tenant_usage
+             SET records = records + $2, bytes = bytes + $3
+             WHERE tenant_id = $1`,
+            [tenant, stored, storedBytes],
+          );
         }
         return { stored, duplicate: records.length - stored };
       });
@@ -339,8 +405,17 @@ export function createHistory(
       await retryPendingDeletes(pool, objects, tenant);
       await transaction(pool, async (client) => {
         await lockThread(client, tenant, threadId);
-        const existing = await client.query<{ object_key: string }>(
-          `SELECT object_key FROM pachigraph.history_records
+        await client.query(
+          `SELECT records FROM pachigraph.tenant_usage
+           WHERE tenant_id = $1 FOR UPDATE`,
+          [tenant],
+        );
+        const existing = await client.query<{
+          object_key: string;
+          stored_bytes: string;
+        }>(
+          `SELECT object_key, stored_bytes::text
+           FROM pachigraph.history_records
            WHERE tenant_id = $1 AND thread_id = $2`,
           [tenant, threadId],
         );
@@ -365,6 +440,16 @@ export function createHistory(
           `INSERT INTO pachigraph.thread_tombstones (tenant_id, thread_id)
            VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [tenant, threadId],
+        );
+        const removedBytes = existing.rows.reduce(
+          (sum, row) => sum + Number(row.stored_bytes),
+          0,
+        );
+        await client.query(
+          `UPDATE pachigraph.tenant_usage
+           SET records = records - $2, bytes = bytes - $3
+           WHERE tenant_id = $1`,
+          [tenant, existing.rows.length, removedBytes],
         );
       });
       await retryPendingDeletes(pool, objects, tenant);

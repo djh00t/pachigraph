@@ -16,6 +16,7 @@ const messages: Record<number, string> = {
   410: 'Thread deleted',
   413: 'Request too large',
   415: 'JSON required',
+  507: 'Storage quota exceeded',
   503: 'Temporarily unavailable',
 };
 export function fail(status: number): never {

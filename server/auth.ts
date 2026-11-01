@@ -1,4 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import type { Pool } from 'pg';
+import { fail } from './http.ts';
 
 export type AuthEnvironment = {
   readonly [name: string]: string | undefined;
@@ -8,12 +10,24 @@ export type AuthEnvironment = {
   PACHIGRAPH_OIDC_JWKS_URL?: string;
 };
 
+export type TenantId = string & { readonly __brand: 'TenantId' };
+
+export type Principal = {
+  tenant: TenantId;
+  subject: string;
+  scope: 'read' | 'ingest' | 'session';
+  expiresAt: Date;
+};
+
 export type VerifiedUser = {
   userId: string;
   displayName: string;
   email: string;
   fullName: string | null;
+  expiresAt: Date;
 };
+
+const TENANT_ID = /^t-[0-9a-f]{16}$/;
 
 const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -90,8 +104,40 @@ export async function verifyUser(
       displayName: fullName ?? (email || subject),
       email,
       fullName,
+      expiresAt: new Date(payload.exp * 1000),
     };
   } catch {
     return null;
   }
+}
+
+export async function resolveTenant(
+  pool: Pool,
+  subject: string,
+): Promise<TenantId | null> {
+  if (!subject.trim()) return null;
+  const result = await pool.query<{ tenant_id: string }>(
+    `SELECT m.tenant_id
+     FROM pachigraph.tenant_members m
+     JOIN pachigraph.tenants t ON t.id = m.tenant_id AND t.active
+     WHERE m.subject = $1 AND length(trim(m.tenant_id)) > 0`,
+    [subject],
+  );
+  const tenantId = result.rows[0]?.tenant_id ?? '';
+  if (!TENANT_ID.test(tenantId)) return null;
+  return tenantId as TenantId;
+}
+
+export async function sessionPrincipal(
+  pool: Pool,
+  user: VerifiedUser,
+): Promise<Principal> {
+  const tenant = await resolveTenant(pool, user.userId);
+  if (!tenant) fail(401);
+  return {
+    tenant,
+    subject: user.userId,
+    scope: 'session',
+    expiresAt: user.expiresAt,
+  };
 }

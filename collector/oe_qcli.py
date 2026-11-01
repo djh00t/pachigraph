@@ -21,7 +21,7 @@ def show_finding(store: Store, index: int, reveal: bool, stdout=None) -> int:
     rows = store.list_findings()
     if index < 1 or index > len(rows):
         raise QuarantineError("refused")
-    stdout.write(rows[index - 1]["original"] + "\n")
+    stdout.write(store.get_original(rows[index - 1]["item_sha"]) + "\n")
     return 0
 
 

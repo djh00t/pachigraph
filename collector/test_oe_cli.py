@@ -108,3 +108,49 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ReviewCliTests(unittest.TestCase):
+    def test_whoami_redirect_does_not_send_bearer(self):
+        import http.server
+        import threading
+        received = []
+        class Target(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                received.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+            def log_message(self, *args):
+                pass
+        target = http.server.HTTPServer(("127.0.0.1", 0), Target)
+        class Redirect(Target):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "http://127.0.0.1:%d/" % target.server_port)
+                self.end_headers()
+        source = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+        threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (source, target)]
+        for thread in threads:
+            thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                code = openai_export.run("missing", "http://127.0.0.1:%d" % source.server_port, "synthetic", Path(directory) / "state")
+                self.assertEqual(code, 6)
+                self.assertEqual(received, [])
+        finally:
+            for server in (source, target):
+                server.shutdown()
+                server.server_close()
+            for thread in threads:
+                thread.join()
+
+    def test_collect_whoami_failure_exits_six(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch("openai_export.fetch_whoami", side_effect=openai_export.AuthFailure()), redirect_stderr(io.StringIO()):
+            self.assertEqual(collector.main(["collect", "--codex-home", directory, "--url", "http://127.0.0.1:9", "--state", str(Path(directory) / "state")]), 6)
+
+    def test_first_scanner_rule_is_kept(self):
+        secret = "".join(("sample", "-value"))
+        findings = []
+        def scan(text):
+            return [{"RuleID": "first", "Secret": secret}, {"RuleID": "last", "Secret": secret}] if secret in text else []
+        collector.sanitize({"text": secret}, scanner=scan, findings_out=findings)
+        self.assertEqual(findings[0][0], "first")

@@ -2,6 +2,7 @@
 
 import json
 import resource
+import sqlite3
 import sys
 import time
 import urllib.error
@@ -75,7 +76,7 @@ def fetch_whoami(url, token):
     headers = {"Authorization": "Bearer " + token} if token else {}
     request = urllib.request.Request(root + "/api/whoami", headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.build_opener(collector.NoRedirect()).open(request, timeout=30) as response:
             body = json.loads(response.read(1024 * 1024) or b"{}")
     except urllib.error.HTTPError as exc:
         exc.close()
@@ -137,7 +138,7 @@ def run(
         if exc.counter:
             counters[exc.counter] += 1
         code = 3
-    except oe_qstore.QuarantineError:
+    except (oe_qstore.QuarantineError, sqlite3.DatabaseError):
         code = 7
     except collector.ScannerError:
         code = 4
@@ -179,8 +180,17 @@ def _execute(
             raise oe_qstore.QuarantineError("quarantine without state")
         tenant = whoami(url, token)["tenant"]
         progress = oe_progress.Progress(state_path)
-        store = oe_qstore.Store(state_path)
-        store.purge_expired(quarantine_days)
+        try:
+            store = oe_qstore.Store(state_path)
+        except Exception:
+            progress.close()
+            raise
+        try:
+            store.purge_expired(quarantine_days)
+        except Exception:
+            store.close()
+            progress.close()
+            raise
     keys = {"local_salt": progress.local_salt, "finding_key": progress.finding_key}
     try:
         archive = oe_zip.open_export(zip_path)
@@ -210,19 +220,22 @@ def _execute(
         finally:
             archive.close()
         for conversation in conversations:
-            _conversation(
-                conversation,
-                url,
-                token,
-                tenant,
-                dry_run,
-                counters,
-                progress,
-                store,
-                keys,
-                scanner,
-                upload,
-            )
+            try:
+                _conversation(
+                    conversation,
+                    url,
+                    token,
+                    tenant,
+                    dry_run,
+                    counters,
+                    progress,
+                    store,
+                    keys,
+                    scanner,
+                    upload,
+                )
+            except (oe_parse.SurrogateKeyCollision, ValueError):
+                counters["bad_tree"] += 1
     finally:
         progress.close()
         if store is not None:
@@ -364,13 +377,18 @@ def _flush(url, token, tenant, thread, ready, dry_run, counters, progress, store
             status, body = upload(url, token, batch)
         except RuntimeError as exc:
             _map_upload(exc, counters)
+        except ValueError as exc:
+            raise UploadFailure() from exc
         if status == 410:
             progress.mark_tombstone(url, tenant, thread)
             if store is not None:
                 store.purge_thread(thread)
             counters["tombstoned"] += 1
             return
-        collector._ack(status, body, count)
+        try:
+            collector._ack(status, body, count)
+        except RuntimeError as exc:
+            raise UploadFailure() from exc
         counters["uploads"] += 1
         counters["records"] += count
         for item in matched:

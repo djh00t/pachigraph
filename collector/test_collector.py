@@ -1151,7 +1151,7 @@ class CollectorTests(unittest.TestCase):
                     ]
                 )
         self.assertEqual(code, 1)
-        self.assertEqual(stderr.getvalue(), "collector failed\n")
+        self.assertEqual(stderr.getvalue(), "state belongs to a different tenant\n")
         self.assertEqual(len(uploads), 1)
 
 

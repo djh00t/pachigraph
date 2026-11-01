@@ -1,5 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 -- Default quota constants: 1,000,000 records and 10 GiB.
 -- The operator CLI quota command changes these per tenant.
 

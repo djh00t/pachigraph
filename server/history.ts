@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
+import type { TenantId } from './auth.ts';
 import type { Objects } from './objects.ts';
 
 const UUID =
@@ -55,8 +56,11 @@ function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function validate(owner: string, input: unknown): asserts input is IngestInput {
-  if (!owner) throw new HistoryError(400, 'owner is required');
+function validate(
+  tenant: TenantId,
+  input: unknown,
+): asserts input is IngestInput {
+  if (!tenant) throw new HistoryError(400, 'tenant is required');
   if (!input || typeof input !== 'object')
     throw new HistoryError(400, 'input must be an object');
   const candidate = input as { thread_id?: unknown; records?: unknown };
@@ -125,10 +129,14 @@ async function transaction<T>(
   }
 }
 
-async function lockThread(client: PoolClient, owner: string, threadId: string) {
+async function lockThread(
+  client: PoolClient,
+  tenant: TenantId,
+  threadId: string,
+) {
   await client.query(
     "SELECT pg_advisory_xact_lock(hashtextextended($1 || E'\\n' || $2, 0))",
-    [owner, threadId],
+    [tenant, threadId],
   );
 }
 
@@ -138,13 +146,14 @@ export function createHistory(
 ) {
   return {
     async ingest(
-      owner: string,
+      tenant: TenantId,
       input: unknown,
     ): Promise<{ stored: number; duplicate: number }> {
-      validate(owner, input);
-      const ownerHash = digest(owner);
+      validate(tenant, input);
+      const tenantHash = digest(tenant);
       const records = input.records.map((item) => {
         const record = canonical(item.record);
+        const envelope = `{"id":${JSON.stringify(item.id)},"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`;
         const revision = digest(
           `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`,
         );
@@ -152,32 +161,36 @@ export function createHistory(
           item,
           record,
           revision,
-          id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
-          key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
+          storedBytes: Buffer.byteLength(envelope),
+          id: digest(`${tenant}\n${input.thread_id}\n${item.id}\n${revision}`),
+          key: `t/${tenantHash}/${input.thread_id}/${item.id}/${revision}`,
         };
       });
 
       return transaction(pool, async (client) => {
-        await lockThread(client, owner, input.thread_id);
+        await lockThread(client, tenant, input.thread_id);
         const tombstone = await client.query(
           `SELECT 1 FROM pachigraph.thread_tombstones
-           WHERE owner_id = $1 AND thread_id = $2`,
-          [owner, input.thread_id],
+           WHERE tenant_id = $1 AND thread_id = $2`,
+          [tenant, input.thread_id],
         );
         if (tombstone.rowCount)
           throw new HistoryError(410, 'history was deleted');
 
         let stored = 0;
         for (const record of records) {
+          // The object is the canonical record, including redaction
+          // fingerprints. stored_bytes counts the envelope.
           await objects.putImmutable(record.key, record.record);
           const result = await client.query(
             `INSERT INTO pachigraph.history_records
-               (owner_id, thread_id, source_id, revision_id, id,
-                source_timestamp, source_text, text_bytes, object_key, ingested_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (owner_id, thread_id, source_id, revision_id) DO NOTHING`,
+               (tenant_id, thread_id, source_id, revision_id, id,
+                source_timestamp, source_text, text_bytes, stored_bytes,
+                object_key, ingested_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             ON CONFLICT (tenant_id, thread_id, source_id, revision_id) DO NOTHING`,
             [
-              owner,
+              tenant,
               input.thread_id,
               record.item.id,
               record.revision,
@@ -185,6 +198,7 @@ export function createHistory(
               record.item.timestamp,
               record.item.text,
               Buffer.byteLength(record.item.text),
+              record.storedBytes,
               record.key,
               new Date().toISOString(),
             ],
@@ -195,7 +209,7 @@ export function createHistory(
       });
     },
 
-    async fetch(owner: string, id: string) {
+    async fetch(tenant: TenantId, id: string) {
       const result = await pool.query<{
         id: string;
         thread_id: string;
@@ -206,12 +220,12 @@ export function createHistory(
       }>(
         `SELECT id, thread_id, source_id, source_timestamp, source_text, object_key
          FROM pachigraph.history_records r
-         WHERE owner_id = $1 AND id = $2
+         WHERE tenant_id = $1 AND id = $2
            AND NOT EXISTS (
              SELECT 1 FROM pachigraph.thread_tombstones
-             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             WHERE tenant_id = r.tenant_id AND thread_id = r.thread_id
            )`,
-        [owner, id],
+        [tenant, id],
       );
       const row = result.rows[0];
       if (!row) throw new HistoryError(404, 'history record not found');
@@ -233,7 +247,7 @@ export function createHistory(
       };
     },
 
-    async search(owner: string, query: string) {
+    async search(tenant: TenantId, query: string) {
       if (typeof query !== 'string' || query.length > 256)
         throw new HistoryError(400, 'query exceeds 256 characters');
       if (!query.match(/[\p{L}\p{N}_]+/u)) return { results: [] };
@@ -251,15 +265,15 @@ export function createHistory(
                   'StartSel=, StopSel=, MaxWords=24, MinWords=12'
                 ) AS source_text
          FROM pachigraph.history_records r CROSS JOIN query
-         WHERE r.owner_id = $1 AND r.search_document @@ query.value
+         WHERE r.tenant_id = $1 AND r.search_document @@ query.value
            AND NOT EXISTS (
              SELECT 1 FROM pachigraph.thread_tombstones
-             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             WHERE tenant_id = r.tenant_id AND thread_id = r.thread_id
            )
          ORDER BY ts_rank_cd(r.search_document, query.value) DESC,
                   r.source_timestamp DESC
          LIMIT 20`,
-        [owner, query],
+        [tenant, query],
       );
       return {
         results: result.rows.map((row) => ({
@@ -278,29 +292,29 @@ export function createHistory(
     },
 
     async deleteThread(
-      owner: string,
+      tenant: TenantId,
       threadId: string,
     ): Promise<{ deleted: true }> {
       if (!UUID.test(threadId))
         throw new HistoryError(400, 'threadId must be a UUID');
       await transaction(pool, async (client) => {
-        await lockThread(client, owner, threadId);
+        await lockThread(client, tenant, threadId);
         await client.query(
-          `INSERT INTO pachigraph.thread_tombstones (owner_id, thread_id)
+          `INSERT INTO pachigraph.thread_tombstones (tenant_id, thread_id)
            VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [owner, threadId],
+          [tenant, threadId],
         );
         await client.query(
           `DELETE FROM pachigraph.history_records
-           WHERE owner_id = $1 AND thread_id = $2`,
-          [owner, threadId],
+           WHERE tenant_id = $1 AND thread_id = $2`,
+          [tenant, threadId],
         );
       });
-      await objects.deletePrefix(`${digest(owner)}/${threadId}/`);
+      await objects.deletePrefix(`t/${digest(tenant)}/${threadId}/`);
       return { deleted: true };
     },
 
-    async status(owner: string) {
+    async status(tenant: TenantId) {
       const result = await pool.query<{
         threads: string;
         records: string;
@@ -312,12 +326,12 @@ export function createHistory(
                 COALESCE(SUM(text_bytes), 0) AS text_bytes,
                 MAX(ingested_at) AS last_ingested_at
          FROM pachigraph.history_records r
-         WHERE owner_id = $1
+         WHERE tenant_id = $1
            AND NOT EXISTS (
              SELECT 1 FROM pachigraph.thread_tombstones
-             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             WHERE tenant_id = r.tenant_id AND thread_id = r.thread_id
            )`,
-        [owner],
+        [tenant],
       );
       const row = result.rows[0];
       return {

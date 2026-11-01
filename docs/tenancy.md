@@ -18,10 +18,11 @@ There is no pre-bind step. Migration `0002_tenancy.sql` runs by itself when the
 server starts, inside the startup transaction. It gives each existing owner its
 own new tenant. It does not merge owners.
 
-Before deploying 0002, record the T11 row count where database access already
-lives: relation sizes in schema `pachigraph`, and `count(*)` from
-`history_records`. Expect a startup delay proportional to that row count. The
-migration takes an exclusive lock while it rewrites `history_records`.
+Before deploying 0002, record how large the database is where database access
+already lives: the size of each table and index in schema `pachigraph`, and
+the number of rows in `history_records`. Expect a startup delay proportional
+to that size. The migration takes an exclusive lock while it rewrites
+`history_records`.
 
 Default quotas, stored as constants in the migration, are 1,000,000 records and
 10 GiB (10737418240 bytes). If a backfilled tenant is already over those caps,
@@ -40,14 +41,15 @@ delete, and `GET /api/whoami` still work for a bound session.
 
 ## Removing a person
 
-`unbind` removes a person. Their sessions and every key they created stop at
-once. Deactivating the tenant does the same for everyone bound to it. Tenant
-ids are never renamed.
+`unbind` removes a person. In the same transaction it deletes every API key
+that person created, so binding them again does not bring those keys back.
+Their sessions stop at once. Deactivating the tenant does the same for
+everyone bound to it. Tenant ids are never renamed.
 
 Moving or merging data between tenants is an export and a re-import. `rebind`
 moves a subject to a different existing tenant. It does not move rows, and it
-does not rename a tenant. Keys stay on the tenant where they were created, so
-they stop working after a rebind or unbind.
+does not rename a tenant. A key stays on the tenant where it was created and
+does not follow the subject. After `unbind`, that key is gone.
 
 ## Thread delete
 

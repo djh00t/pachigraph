@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 
 const TENANT_ID = /^t-[0-9a-f]{16}$/;
 const DEFAULT_MAX_RECORDS = 1_000_000;
@@ -16,19 +16,38 @@ function usage(): never {
   );
 }
 
+async function withTransaction(
+  pool: Pool,
+  operation: (client: PoolClient) => Promise<void>,
+) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await operation(client);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function create(pool: Pool, args: string[]) {
   if (args.length !== 0) fail('create does not accept an id');
   const id = `t-${randomBytes(8).toString('hex')}`;
-  await pool.query(
-    `INSERT INTO pachigraph.tenants (id, max_records, max_bytes)
-     VALUES ($1, $2, $3)`,
-    [id, DEFAULT_MAX_RECORDS, DEFAULT_MAX_BYTES],
-  );
-  await pool.query(
-    `INSERT INTO pachigraph.tenant_usage (tenant_id, records, bytes)
-     VALUES ($1, 0, 0)`,
-    [id],
-  );
+  await withTransaction(pool, async (client) => {
+    await client.query(
+      `INSERT INTO pachigraph.tenants (id, max_records, max_bytes)
+       VALUES ($1, $2, $3)`,
+      [id, DEFAULT_MAX_RECORDS, DEFAULT_MAX_BYTES],
+    );
+    await client.query(
+      `INSERT INTO pachigraph.tenant_usage (tenant_id, records, bytes)
+       VALUES ($1, 0, 0)`,
+      [id],
+    );
+  });
   console.log(id);
 }
 
@@ -149,12 +168,25 @@ async function rebind(pool: Pool, args: string[]) {
 
 async function unbind(pool: Pool, args: string[]) {
   if (args.length !== 1) usage();
-  const result = await pool.query(
-    'DELETE FROM pachigraph.tenant_members WHERE subject = $1',
-    [args[0]],
-  );
-  if (!result.rowCount) fail('subject is not bound');
-  console.log(`${args[0]}\tunbound`);
+  const subject = args[0];
+  let removed = false;
+  await withTransaction(pool, async (client) => {
+    const member = await client.query(
+      'SELECT 1 FROM pachigraph.tenant_members WHERE subject = $1 FOR UPDATE',
+      [subject],
+    );
+    if (!member.rowCount) return;
+    await client.query('DELETE FROM pachigraph.api_keys WHERE owner_id = $1', [
+      subject,
+    ]);
+    const result = await client.query(
+      'DELETE FROM pachigraph.tenant_members WHERE subject = $1',
+      [subject],
+    );
+    removed = (result.rowCount ?? 0) > 0;
+  });
+  if (!removed) fail('subject is not bound');
+  console.log(`${subject}\tunbound`);
 }
 
 async function main() {

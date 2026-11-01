@@ -110,4 +110,44 @@ test('bind, rebind and unbind keep one subject on an existing tenant', async () 
     ),
     { status: 401 },
   );
+  assert.equal(cli(['bind', 'subject-a', second]).status, 0);
+  assert.equal(cli(['rebind', 'subject-a', first]).status, 0);
+  await assert.rejects(
+    keys.resolve(
+      new Request('https://site.test/api/search', {
+        headers: { authorization: 'Bearer ' + minted.key },
+      }),
+    ),
+    { status: 401 },
+  );
+  const remaining = await pool.query<{ count: number }>(
+    'SELECT count(*)::int AS count FROM pachigraph.api_keys WHERE owner_id = $1',
+    ['subject-a'],
+  );
+  assert.equal(remaining.rows[0].count, 0);
+});
+
+test('create rolls back the tenant when usage cannot be recorded', async () => {
+  await pool.query(`
+    CREATE FUNCTION pachigraph.reject_usage_insert() RETURNS trigger
+    LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected usage failure'; END $$;
+    CREATE TRIGGER reject_usage_insert BEFORE INSERT ON pachigraph.tenant_usage
+    FOR EACH ROW EXECUTE FUNCTION pachigraph.reject_usage_insert()
+  `);
+  try {
+    const before = await pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM pachigraph.tenants',
+    );
+    const result = cli(['create']);
+    assert.notEqual(result.status, 0);
+    const after = await pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM pachigraph.tenants',
+    );
+    assert.equal(after.rows[0].count, before.rows[0].count);
+  } finally {
+    await pool.query(`
+      DROP TRIGGER IF EXISTS reject_usage_insert ON pachigraph.tenant_usage;
+      DROP FUNCTION IF EXISTS pachigraph.reject_usage_insert()
+    `);
+  }
 });

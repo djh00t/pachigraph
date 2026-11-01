@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createKeys } from '../server/api-keys.ts';
-import { createHistory } from '../server/history.ts';
+import { createHistory, retryPendingDeletes } from '../server/history.ts';
 import { createObjects, type Objects } from '../server/objects.ts';
 import { migrate } from './migrate.ts';
 
@@ -25,6 +25,10 @@ function objects() {
   return sharedObjects;
 }
 
+export function getPool() {
+  return pool();
+}
+
 export function getKeys() {
   return createKeys(pool());
 }
@@ -42,6 +46,7 @@ export function initializeStorage(): Promise<void> {
   if (!initialization) {
     initialization = (async () => {
       await migrate(pool());
+      await retryPendingDeletes(pool(), objects());
       await storageStatus();
     })().catch((error) => {
       initialization = undefined;

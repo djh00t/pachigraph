@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
+import type { TenantId } from './auth.ts';
 import type { Objects } from './objects.ts';
 
 const UUID =
@@ -55,8 +56,11 @@ function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function validate(owner: string, input: unknown): asserts input is IngestInput {
-  if (!owner) throw new HistoryError(400, 'owner is required');
+function validate(
+  tenant: TenantId,
+  input: unknown,
+): asserts input is IngestInput {
+  if (!tenant) throw new HistoryError(400, 'tenant is required');
   if (!input || typeof input !== 'object')
     throw new HistoryError(400, 'input must be an object');
   const candidate = input as { thread_id?: unknown; records?: unknown };
@@ -98,12 +102,22 @@ function validate(owner: string, input: unknown): asserts input is IngestInput {
   }
 }
 
+const UUID_V5 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isChatGptThread(threadId: string) {
+  return UUID_V5.test(threadId);
+}
+
 function citation(
   id: string,
   threadId: string,
   sourceId: string,
   timestamp: string,
 ): string {
+  if (isChatGptThread(threadId)) {
+    return `ChatGPT conversation ${threadId}, event ${sourceId}, ${timestamp}; /?id=${id}`;
+  }
   return `Codex thread ${threadId}, event ${sourceId}, ${timestamp}; /?id=${id}; codex://threads/${threadId}#${sourceId}`;
 }
 
@@ -125,11 +139,54 @@ async function transaction<T>(
   }
 }
 
-async function lockThread(client: PoolClient, owner: string, threadId: string) {
+async function lockThread(
+  client: PoolClient,
+  tenant: TenantId,
+  threadId: string,
+) {
   await client.query(
     "SELECT pg_advisory_xact_lock(hashtextextended($1 || E'\\n' || $2, 0))",
-    [owner, threadId],
+    [tenant, threadId],
   );
+}
+
+function prefixFromObjectKey(objectKey: string) {
+  const parts = objectKey.split('/').filter((part) => part.length > 0);
+  if (parts.length < 3)
+    return objectKey.endsWith('/') ? objectKey : `${objectKey}/`;
+  return `${parts.slice(0, -2).join('/')}/`;
+}
+
+export async function retryPendingDeletes(
+  pool: Pool,
+  objects: Pick<Objects, 'deletePrefix'>,
+  tenant?: TenantId,
+) {
+  const result = await pool.query<{
+    tenant_id: string;
+    thread_id: string;
+    prefix: string;
+  }>(
+    `SELECT tenant_id, thread_id, prefix
+     FROM pachigraph.pending_deletes
+     WHERE ($1::text IS NULL OR tenant_id = $1)`,
+    [tenant ?? null],
+  );
+  let failed = 0;
+  for (const row of result.rows) {
+    try {
+      await objects.deletePrefix(row.prefix);
+      await pool.query(
+        `DELETE FROM pachigraph.pending_deletes
+         WHERE tenant_id = $1 AND thread_id = $2 AND prefix = $3`,
+        [row.tenant_id, row.thread_id, row.prefix],
+      );
+    } catch {
+      failed += 1;
+    }
+  }
+  if (failed > 0)
+    console.error(`pending_deletes cleanup failed count=${failed}`);
 }
 
 export function createHistory(
@@ -138,13 +195,14 @@ export function createHistory(
 ) {
   return {
     async ingest(
-      owner: string,
+      tenant: TenantId,
       input: unknown,
     ): Promise<{ stored: number; duplicate: number }> {
-      validate(owner, input);
-      const ownerHash = digest(owner);
+      validate(tenant, input);
+      const tenantHash = digest(tenant);
       const records = input.records.map((item) => {
         const record = canonical(item.record);
+        const envelope = `{"id":${JSON.stringify(item.id)},"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`;
         const revision = digest(
           `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`,
         );
@@ -152,32 +210,91 @@ export function createHistory(
           item,
           record,
           revision,
-          id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
-          key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
+          storedBytes: Buffer.byteLength(envelope),
+          id: digest(`${tenant}\n${input.thread_id}\n${item.id}\n${revision}`),
+          key: `t/${tenantHash}/${input.thread_id}/${item.id}/${revision}`,
         };
       });
 
       return transaction(pool, async (client) => {
-        await lockThread(client, owner, input.thread_id);
+        await lockThread(client, tenant, input.thread_id);
         const tombstone = await client.query(
           `SELECT 1 FROM pachigraph.thread_tombstones
-           WHERE owner_id = $1 AND thread_id = $2`,
-          [owner, input.thread_id],
+           WHERE tenant_id = $1 AND thread_id = $2`,
+          [tenant, input.thread_id],
         );
         if (tombstone.rowCount)
           throw new HistoryError(410, 'history was deleted');
 
-        let stored = 0;
+        const existing = await client.query<{
+          source_id: string;
+          revision_id: string;
+        }>(
+          `SELECT source_id, revision_id
+           FROM pachigraph.history_records
+           WHERE tenant_id = $1 AND thread_id = $2
+             AND (source_id, revision_id) IN (
+               SELECT * FROM unnest($3::text[], $4::text[])
+             )`,
+          [
+            tenant,
+            input.thread_id,
+            records.map((record) => record.item.id),
+            records.map((record) => record.revision),
+          ],
+        );
+        const seen = new Set(
+          existing.rows.map((row) => `${row.source_id}\n${row.revision_id}`),
+        );
+        const fresh = [];
         for (const record of records) {
+          const key = `${record.item.id}\n${record.revision}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          fresh.push(record);
+        }
+        const usage = await client.query<{
+          records: string;
+          bytes: string;
+          max_records: string;
+          max_bytes: string;
+        }>(
+          `SELECT u.records::text, u.bytes::text,
+                  t.max_records::text, t.max_bytes::text
+           FROM pachigraph.tenant_usage u
+           JOIN pachigraph.tenants t ON t.id = u.tenant_id
+           WHERE u.tenant_id = $1
+           FOR UPDATE OF u`,
+          [tenant],
+        );
+        const quota = usage.rows[0];
+        if (!quota) throw new HistoryError(503, 'quota unavailable');
+        const addBytes = fresh.reduce(
+          (sum, record) => sum + record.storedBytes,
+          0,
+        );
+        if (
+          Number(quota.records) + fresh.length > Number(quota.max_records) ||
+          Number(quota.bytes) + addBytes > Number(quota.max_bytes)
+        ) {
+          throw new HistoryError(507, 'Storage quota exceeded');
+        }
+
+        let stored = 0;
+        let storedBytes = 0;
+        for (const record of fresh) {
+          // The object is the canonical record, including redaction
+          // fingerprints. stored_bytes counts the envelope.
           await objects.putImmutable(record.key, record.record);
           const result = await client.query(
             `INSERT INTO pachigraph.history_records
-               (owner_id, thread_id, source_id, revision_id, id,
-                source_timestamp, source_text, text_bytes, object_key, ingested_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (owner_id, thread_id, source_id, revision_id) DO NOTHING`,
+               (tenant_id, thread_id, source_id, revision_id, id,
+                source_timestamp, source_text, text_bytes, stored_bytes,
+                object_key, ingested_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             ON CONFLICT (tenant_id, thread_id, source_id, revision_id) DO NOTHING`,
             [
-              owner,
+              tenant,
               input.thread_id,
               record.item.id,
               record.revision,
@@ -185,17 +302,29 @@ export function createHistory(
               record.item.timestamp,
               record.item.text,
               Buffer.byteLength(record.item.text),
+              record.storedBytes,
               record.key,
               new Date().toISOString(),
             ],
           );
-          stored += result.rowCount ?? 0;
+          if (result.rowCount) {
+            stored += result.rowCount;
+            storedBytes += record.storedBytes;
+          }
+        }
+        if (stored) {
+          await client.query(
+            `UPDATE pachigraph.tenant_usage
+             SET records = records + $2, bytes = bytes + $3
+             WHERE tenant_id = $1`,
+            [tenant, stored, storedBytes],
+          );
         }
         return { stored, duplicate: records.length - stored };
       });
     },
 
-    async fetch(owner: string, id: string) {
+    async fetch(tenant: TenantId, id: string) {
       const result = await pool.query<{
         id: string;
         thread_id: string;
@@ -206,12 +335,12 @@ export function createHistory(
       }>(
         `SELECT id, thread_id, source_id, source_timestamp, source_text, object_key
          FROM pachigraph.history_records r
-         WHERE owner_id = $1 AND id = $2
+         WHERE tenant_id = $1 AND id = $2
            AND NOT EXISTS (
              SELECT 1 FROM pachigraph.thread_tombstones
-             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             WHERE tenant_id = r.tenant_id AND thread_id = r.thread_id
            )`,
-        [owner, id],
+        [tenant, id],
       );
       const row = result.rows[0];
       if (!row) throw new HistoryError(404, 'history record not found');
@@ -233,7 +362,7 @@ export function createHistory(
       };
     },
 
-    async search(owner: string, query: string) {
+    async search(tenant: TenantId, query: string) {
       if (typeof query !== 'string' || query.length > 256)
         throw new HistoryError(400, 'query exceeds 256 characters');
       if (!query.match(/[\p{L}\p{N}_]+/u)) return { results: [] };
@@ -251,15 +380,15 @@ export function createHistory(
                   'StartSel=, StopSel=, MaxWords=24, MinWords=12'
                 ) AS source_text
          FROM pachigraph.history_records r CROSS JOIN query
-         WHERE r.owner_id = $1 AND r.search_document @@ query.value
+         WHERE r.tenant_id = $1 AND r.search_document @@ query.value
            AND NOT EXISTS (
              SELECT 1 FROM pachigraph.thread_tombstones
-             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             WHERE tenant_id = r.tenant_id AND thread_id = r.thread_id
            )
          ORDER BY ts_rank_cd(r.search_document, query.value) DESC,
                   r.source_timestamp DESC
          LIMIT 20`,
-        [owner, query],
+        [tenant, query],
       );
       return {
         results: result.rows.map((row) => ({
@@ -278,29 +407,66 @@ export function createHistory(
     },
 
     async deleteThread(
-      owner: string,
+      tenant: TenantId,
       threadId: string,
     ): Promise<{ deleted: true }> {
       if (!UUID.test(threadId))
         throw new HistoryError(400, 'threadId must be a UUID');
+      await retryPendingDeletes(pool, objects, tenant);
       await transaction(pool, async (client) => {
-        await lockThread(client, owner, threadId);
+        await lockThread(client, tenant, threadId);
         await client.query(
-          `INSERT INTO pachigraph.thread_tombstones (owner_id, thread_id)
-           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [owner, threadId],
+          `SELECT records FROM pachigraph.tenant_usage
+           WHERE tenant_id = $1 FOR UPDATE`,
+          [tenant],
         );
+        const existing = await client.query<{
+          object_key: string;
+          stored_bytes: string;
+        }>(
+          `SELECT object_key, stored_bytes::text
+           FROM pachigraph.history_records
+           WHERE tenant_id = $1 AND thread_id = $2`,
+          [tenant, threadId],
+        );
+        const prefixes = new Set<string>([`t/${digest(tenant)}/${threadId}/`]);
+        for (const row of existing.rows)
+          prefixes.add(prefixFromObjectKey(row.object_key));
+        for (const prefix of prefixes) {
+          await client.query(
+            `INSERT INTO pachigraph.pending_deletes
+               (tenant_id, thread_id, prefix)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING`,
+            [tenant, threadId, prefix],
+          );
+        }
         await client.query(
           `DELETE FROM pachigraph.history_records
-           WHERE owner_id = $1 AND thread_id = $2`,
-          [owner, threadId],
+           WHERE tenant_id = $1 AND thread_id = $2`,
+          [tenant, threadId],
+        );
+        await client.query(
+          `INSERT INTO pachigraph.thread_tombstones (tenant_id, thread_id)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [tenant, threadId],
+        );
+        const removedBytes = existing.rows.reduce(
+          (sum, row) => sum + Number(row.stored_bytes),
+          0,
+        );
+        await client.query(
+          `UPDATE pachigraph.tenant_usage
+           SET records = records - $2, bytes = bytes - $3
+           WHERE tenant_id = $1`,
+          [tenant, existing.rows.length, removedBytes],
         );
       });
-      await objects.deletePrefix(`${digest(owner)}/${threadId}/`);
+      await retryPendingDeletes(pool, objects, tenant);
       return { deleted: true };
     },
 
-    async status(owner: string) {
+    async status(tenant: TenantId) {
       const result = await pool.query<{
         threads: string;
         records: string;
@@ -312,12 +478,17 @@ export function createHistory(
                 COALESCE(SUM(text_bytes), 0) AS text_bytes,
                 MAX(ingested_at) AS last_ingested_at
          FROM pachigraph.history_records r
-         WHERE owner_id = $1
+         WHERE tenant_id = $1
            AND NOT EXISTS (
              SELECT 1 FROM pachigraph.thread_tombstones
-             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             WHERE tenant_id = r.tenant_id AND thread_id = r.thread_id
            )`,
-        [owner],
+        [tenant],
+      );
+      const pending = await pool.query<{ pending_deletes: string }>(
+        `SELECT count(*)::text AS pending_deletes
+         FROM pachigraph.pending_deletes WHERE tenant_id = $1`,
+        [tenant],
       );
       const row = result.rows[0];
       return {
@@ -325,6 +496,7 @@ export function createHistory(
         records: Number(row.records),
         text_bytes: Number(row.text_bytes),
         last_ingested_at: row.last_ingested_at,
+        pending_deletes: Number(pending.rows[0].pending_deletes),
       };
     },
   };

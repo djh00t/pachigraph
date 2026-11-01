@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
-import { after, before, test } from 'node:test';
+import { after, before, beforeEach, test } from 'node:test';
 import {
   exportJWK,
   generateKeyPair,
@@ -9,7 +9,20 @@ import {
   type CryptoKey,
   type JWTPayload,
 } from 'jose';
-import { verifyUser, type AuthEnvironment } from '../server/auth.ts';
+import { migrate } from '../db/migrate.ts';
+import {
+  resolveTenant,
+  sessionPrincipal,
+  verifyUser,
+  type AuthEnvironment,
+  type TenantId,
+  type VerifiedUser,
+} from '../server/auth.ts';
+import { clearStorage, testPool } from './storage-support.ts';
+
+const pool = testPool();
+const TENANT_A = 't-aaaaaaaaaaaaaaaa';
+const TENANT_B = 't-bbbbbbbbbbbbbbbb';
 
 let issuer: string;
 let privateKey: CryptoKey;
@@ -45,11 +58,15 @@ before(async () => {
   const address = server.address();
   assert.ok(address && typeof address === 'object');
   issuer = `http://127.0.0.1:${address.port}/realms/pachigraph`;
+  await migrate(pool);
 });
+
+beforeEach(async () => clearStorage(pool));
 
 after(async () => {
   server.close();
   await once(server, 'close');
+  await pool.end();
 });
 
 function environment(
@@ -99,15 +116,123 @@ function requestHeaders(value?: string, extra: Record<string, string> = {}) {
 }
 
 test('verified access token supplies the owner and verified profile', async () => {
+  const exp = 1_800_000_000;
   assert.deepEqual(
-    await verifyUser(requestHeaders(await token()), environment()),
+    await verifyUser(
+      requestHeaders(await token({ expires: exp })),
+      environment(),
+    ),
     {
       userId: 'allowed-subject',
       displayName: 'Archive Reader',
       email: 'reader@example.test',
       fullName: 'Archive Reader',
+      expiresAt: new Date(exp * 1000),
     },
   );
+});
+
+function requireTenant(id: TenantId) {
+  return id;
+}
+
+test('TenantId rejects a plain string', () => {
+  const id: string = TENANT_A;
+  // @ts-expect-error plain string is not a TenantId
+  requireTenant(id);
+});
+
+function profile(subject: string): VerifiedUser {
+  return {
+    userId: subject,
+    displayName: subject,
+    email: '',
+    fullName: null,
+    expiresAt: new Date('2026-04-01T00:00:00.000Z'),
+  };
+}
+
+async function bind(subject: string, tenant: string, active = true) {
+  await pool.query(
+    `INSERT INTO pachigraph.tenants (id, active, max_records, max_bytes)
+     VALUES ($1, $2, 1000000, 10737418240)`,
+    [tenant, active],
+  );
+  await pool.query(
+    `INSERT INTO pachigraph.tenant_members (subject, tenant_id)
+     VALUES ($1, $2)`,
+    [subject, tenant],
+  );
+  await pool.query(
+    `INSERT INTO pachigraph.tenant_usage (tenant_id, records, bytes)
+     VALUES ($1, 0, 0)`,
+    [tenant],
+  );
+}
+
+test('a bound subject in an active tenant resolves to that tenant', async () => {
+  await bind('subject-a', TENANT_A);
+  const user = profile('subject-a');
+  const principal = await sessionPrincipal(pool, user);
+  assert.equal(principal.tenant, TENANT_A);
+  assert.equal(principal.subject, 'subject-a');
+  assert.equal(principal.scope, 'session');
+  assert.deepEqual(principal.expiresAt, user.expiresAt);
+  assert.notEqual(principal.tenant, TENANT_B);
+});
+
+test('an unbound subject, an inactive tenant and an empty binding give 401', async () => {
+  await bind('subject-b', TENANT_B, false);
+  await assert.rejects(sessionPrincipal(pool, profile('subject-a')), {
+    status: 401,
+  });
+  await assert.rejects(sessionPrincipal(pool, profile('subject-b')), {
+    status: 401,
+  });
+  await assert.equal(await resolveTenant(pool, 'subject-b'), null);
+
+  await pool.query(
+    'ALTER TABLE pachigraph.tenant_members DROP CONSTRAINT tenant_members_tenant_id_fkey',
+  );
+  await pool.query(
+    'ALTER TABLE pachigraph.tenant_members DROP CONSTRAINT tenant_members_tenant_id_len',
+  );
+  try {
+    await pool.query(
+      `INSERT INTO pachigraph.tenant_members (subject, tenant_id)
+       VALUES ('subject-empty', '   ')`,
+    );
+    await assert.rejects(sessionPrincipal(pool, profile('subject-empty')), {
+      status: 401,
+    });
+    assert.equal(await resolveTenant(pool, 'subject-empty'), null);
+  } finally {
+    await pool.query(
+      `DELETE FROM pachigraph.tenant_members WHERE subject = 'subject-empty'`,
+    );
+    await pool.query(
+      `ALTER TABLE pachigraph.tenant_members
+       ADD CONSTRAINT tenant_members_tenant_id_len
+       CHECK (length(trim(tenant_id)) > 0)`,
+    );
+    await pool.query(
+      `ALTER TABLE pachigraph.tenant_members
+       ADD CONSTRAINT tenant_members_tenant_id_fkey
+       FOREIGN KEY (tenant_id) REFERENCES pachigraph.tenants (id)`,
+    );
+  }
+});
+
+test('removing a subject from the allowlist blocks new sign-in only and is not a gate', async () => {
+  await bind('allowed-subject', TENANT_A);
+  assert.equal(
+    await verifyUser(
+      requestHeaders(await token()),
+      environment({ PACHIGRAPH_ALLOWED_SUBJECTS: 'second-subject' }),
+    ),
+    null,
+  );
+  assert.equal(await resolveTenant(pool, 'allowed-subject'), TENANT_A);
 });
 
 test('signature, issuer, audience, expiry and allowlist failures return no user', async () => {

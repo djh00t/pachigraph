@@ -1,0 +1,7 @@
+[
+  {"unit": "a", "target_bytes": 393216},
+  {"unit": "é", "target_bytes": 276},
+  {"unit": "你", "target_bytes": 328},
+  {"unit": "😀", "target_bytes": 404},
+  {"unit": "\u0001", "target_bytes": 508}
+]

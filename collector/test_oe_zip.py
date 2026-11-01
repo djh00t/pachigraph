@@ -246,6 +246,125 @@ class ZipTests(unittest.TestCase):
             with self.assertRaises(oe_zip.ZipAbort):
                 oe_zip.open_export(enc_path)
 
+    def test_zip_limits_integrity(self):
+        base = self._stored_zip({"conversations.json": b"[]"})
+        for kind in ("crc", "name"):
+            with self.subTest(kind=kind), self._tmp() as directory:
+                data = bytearray(base)
+                if kind == "crc":
+                    data[30 + len("conversations.json")] ^= 1
+                else:
+                    data[30] ^= 1
+                path = Path(directory) / "bad.zip"
+                path.write_bytes(data)
+                with oe_zip.open_export(path) as zf:
+                    loads = mock.Mock()
+                    with self.assertRaises(oe_zip.ZipAbort):
+                        oe_zip.read_member(zf, zf.getinfo("conversations.json"),
+                                           oe_zip.ReadState(), loads)
+                    loads.assert_not_called()
+
+    def test_zip_limits_zip64_record(self):
+        base = self._patch_zip64_count(self._stored_zip({"conversations.json": b"[]"}),
+                                       entries=None, cd_size=None)
+        for kind in ("offset", "size"):
+            with self.subTest(kind=kind), self._tmp() as directory:
+                data = bytearray(base)
+                loc = data.rfind(SIG_ZIP64_LOC)
+                if kind == "offset":
+                    fake = bytes(data[loc - 56:loc])
+                    data = bytearray(fake + data)
+                    loc += len(fake)
+                    struct.pack_into("<Q", data, loc + 8, 0)
+                else:
+                    struct.pack_into("<Q", data, loc - 56 + 4, 45)
+                path = Path(directory) / "bad.zip"
+                path.write_bytes(data)
+                with path.open("rb") as raw, self.assertRaises(oe_zip.ZipAbort):
+                    oe_zip._read_tail(raw)
+
+    def test_zip_limits_tail_boundaries(self):
+        base = self._stored_zip({"conversations.json": b"[]"})
+        size = struct.unpack_from("<I", base, base.rfind(SIG_EOCD) + 12)[0]
+        with self._tmp() as directory:
+            path = Path(directory) / "tail.zip"
+            path.write_bytes(base)
+            oe_zip.precheck(path, oe_zip.Limits(max_members=1, max_cd_bytes=size))
+            for limits, reason in (
+                (oe_zip.Limits(max_members=0), "tail_member_limit"),
+                (oe_zip.Limits(max_cd_bytes=size - 1), "directory_size_limit"),
+            ):
+                with self.subTest(reason=reason), self.assertRaises(oe_zip.ZipAbort) as caught:
+                    oe_zip.precheck(path, limits)
+                self.assertEqual(caught.exception.reason, reason)
+
+    def test_zip_limits_walk_boundaries(self):
+        from io import BytesIO
+
+        raw = self._synthetic_cd(2, 5, 0, 2)
+        tail = oe_zip._read_tail(BytesIO(raw))
+        self.assertEqual(oe_zip.walk_central_directory(
+            BytesIO(raw), 0, tail, oe_zip.Limits(max_members=2)), 2)
+        with self.assertRaises(oe_zip.ZipAbort) as caught:
+            oe_zip.walk_central_directory(BytesIO(raw), 0, tail, oe_zip.Limits(max_members=1))
+        self.assertEqual(caught.exception.reason, "walk_member_limit")
+        broken = bytearray(raw)
+        struct.pack_into("<H", broken, 28, tail.cd_size)
+        with self.assertRaises(oe_zip.ZipAbort) as caught:
+            oe_zip.walk_central_directory(BytesIO(broken), 0, tail, oe_zip.Limits())
+        self.assertEqual(caught.exception.reason, "directory_overrun")
+
+    def test_zip_limits_post_parse_boundary(self):
+        with self._tmp() as directory:
+            path = Path(directory) / "one.zip"
+            path.write_bytes(self._stored_zip({"conversations.json": b"[]"}))
+            with oe_zip.open_export(path, oe_zip.Limits(max_members=1)):
+                pass
+            fake = mock.MagicMock()
+            fake.infolist.return_value = [mock.Mock(), mock.Mock()]
+            with mock.patch("oe_zip.zipfile.ZipFile", return_value=fake):
+                with self.assertRaises(oe_zip.ZipAbort) as caught:
+                    oe_zip.open_export(path, oe_zip.Limits(max_members=1))
+            self.assertEqual(caught.exception.reason, "parsed_member_limit")
+            fake.close.assert_called_once()
+
+    def test_zip_limits_member_and_total_boundaries(self):
+        with self._tmp() as directory:
+            path = Path(directory) / "member.zip"
+            path.write_bytes(self._stored_zip({"conversations.json": b"[]"}))
+            with oe_zip.open_export(path, oe_zip.Limits(max_member_bytes=2)) as zf:
+                info = zf.getinfo("conversations.json")
+                state = oe_zip.ReadState(oe_zip.Limits(max_member_bytes=2, max_total_bytes=4))
+                self.assertEqual(oe_zip.read_member(zf, info, state, json.loads), [])
+                self.assertEqual(oe_zip.read_member(zf, info, state, json.loads), [])
+                with mock.patch("oe_zip._read_opened", return_value=b" "):
+                    with self.assertRaises(oe_zip.ZipAbort) as caught:
+                        oe_zip.read_member(zf, info, state, json.loads)
+                self.assertEqual(caught.exception.reason, "total_limit")
+            with self.assertRaises(oe_zip.ZipAbort) as caught:
+                oe_zip.open_export(path, oe_zip.Limits(max_member_bytes=1))
+            self.assertEqual(caught.exception.reason, "member_size_limit")
+            for data, reason in ((b"[]", None), (b"[] ", "member_read_limit")):
+                state = oe_zip.ReadState(oe_zip.Limits(max_member_bytes=2))
+                with mock.patch("oe_zip._read_opened", return_value=data):
+                    if reason is None:
+                        self.assertEqual(oe_zip.read_member(None, None, state, json.loads), [])
+                    else:
+                        with self.assertRaises(oe_zip.ZipAbort) as caught:
+                            oe_zip.read_member(None, None, state, json.loads)
+                        self.assertEqual(caught.exception.reason, reason)
+
+    def test_sharded_equals_single_empty_manifest_lists(self):
+        shards = ["conversations-001.json"]
+        counters = Counter()
+        oe_zip.check_manifest({"files": shards, "tags": []}, shards, counters)
+        self.assertEqual(counters["manifest_unrecognized"], 0)
+        with self.assertRaises(oe_zip.ZipAbort) as caught:
+            oe_zip.check_manifest({"files": shards, "tags": []}, [], counters)
+        self.assertEqual(caught.exception.counter, "manifest_mismatch")
+        oe_zip.check_manifest({"other": []}, shards, counters)
+        self.assertEqual(counters["manifest_unrecognized"], 1)
+
     def test_layout_precedence(self):
         counters = Counter()
         with self.assertRaises(oe_zip.ZipAbort) as both:

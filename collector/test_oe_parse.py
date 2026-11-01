@@ -42,14 +42,24 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(oe_parse.loads(document, counters), [None, None, None, None])
         self.assertEqual(counters["non_finite"], 4)
         counters = Counter()
-        self.assertIsInstance(oe_parse.loads(str(2**53), counters) , float)
-        self.assertEqual(oe_parse.loads(str(2**53 - 1), counters), 2**53 - 1)
+        value = oe_parse.loads(str(2**53 - 1), counters)
+        self.assertIsInstance(value, int)
+        self.assertEqual(value, 2**53 - 1)
+        value = oe_parse.loads(str(2**53), counters)
+        self.assertIsInstance(value, float)
+        self.assertEqual(oe_parse.loads("9999999999999999", counters), 9999999999999999.0)
+        self.assertIsInstance(oe_parse.loads("9999999999999999", counters), float)
         counters = Counter()
         self.assertIsNone(oe_parse.loads("NaN", counters))
         self.assertEqual(counters["non_finite"], 1)
         encoded = json.dumps(oe_parse.loads("[1e400]", Counter()))
         self.assertIn("null", encoded)
         self.assertNotIn("Infinity", encoded)
+
+    def test_surrogate_key_collision_aborts_repair(self):
+        counters = Counter()
+        with self.assertRaises(oe_parse.SurrogateKeyCollision):
+            oe_parse.fix_surrogates({"\ud800": 1, "\ufffd": 2}, counters)
 
 
 if __name__ == "__main__":

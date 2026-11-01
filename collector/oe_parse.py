@@ -4,6 +4,10 @@ import json
 import math
 
 
+class SurrogateKeyCollision(Exception):
+    """Two object keys become equal after surrogate repair."""
+
+
 def finite(value, counters):
     if isinstance(value, float) and math.isfinite(value):
         return value
@@ -24,6 +28,8 @@ def fix_surrogates(value, counters):
         repaired = {}
         for key, item in value.items():
             new_key = fix_surrogates(key, counters) if isinstance(key, str) else key
+            if new_key in repaired:
+                raise SurrogateKeyCollision()
             repaired[new_key] = fix_surrogates(item, counters)
         return repaired
     return value

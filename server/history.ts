@@ -140,6 +140,45 @@ async function lockThread(
   );
 }
 
+function prefixFromObjectKey(objectKey: string) {
+  const parts = objectKey.split('/').filter((part) => part.length > 0);
+  if (parts.length < 3)
+    return objectKey.endsWith('/') ? objectKey : `${objectKey}/`;
+  return `${parts.slice(0, -2).join('/')}/`;
+}
+
+export async function retryPendingDeletes(
+  pool: Pool,
+  objects: Pick<Objects, 'deletePrefix'>,
+  tenant?: TenantId,
+) {
+  const result = await pool.query<{
+    tenant_id: string;
+    thread_id: string;
+    prefix: string;
+  }>(
+    `SELECT tenant_id, thread_id, prefix
+     FROM pachigraph.pending_deletes
+     WHERE ($1::text IS NULL OR tenant_id = $1)`,
+    [tenant ?? null],
+  );
+  let failed = 0;
+  for (const row of result.rows) {
+    try {
+      await objects.deletePrefix(row.prefix);
+      await pool.query(
+        `DELETE FROM pachigraph.pending_deletes
+         WHERE tenant_id = $1 AND thread_id = $2 AND prefix = $3`,
+        [row.tenant_id, row.thread_id, row.prefix],
+      );
+    } catch {
+      failed += 1;
+    }
+  }
+  if (failed > 0)
+    console.error(`pending_deletes cleanup failed count=${failed}`);
+}
+
 export function createHistory(
   pool: Pool,
   objects: Pick<Objects, 'putImmutable' | 'getText' | 'deletePrefix'>,
@@ -297,20 +336,38 @@ export function createHistory(
     ): Promise<{ deleted: true }> {
       if (!UUID.test(threadId))
         throw new HistoryError(400, 'threadId must be a UUID');
+      await retryPendingDeletes(pool, objects, tenant);
       await transaction(pool, async (client) => {
         await lockThread(client, tenant, threadId);
-        await client.query(
-          `INSERT INTO pachigraph.thread_tombstones (tenant_id, thread_id)
-           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        const existing = await client.query<{ object_key: string }>(
+          `SELECT object_key FROM pachigraph.history_records
+           WHERE tenant_id = $1 AND thread_id = $2`,
           [tenant, threadId],
         );
+        const prefixes = new Set<string>([`t/${digest(tenant)}/${threadId}/`]);
+        for (const row of existing.rows)
+          prefixes.add(prefixFromObjectKey(row.object_key));
+        for (const prefix of prefixes) {
+          await client.query(
+            `INSERT INTO pachigraph.pending_deletes
+               (tenant_id, thread_id, prefix)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING`,
+            [tenant, threadId, prefix],
+          );
+        }
         await client.query(
           `DELETE FROM pachigraph.history_records
            WHERE tenant_id = $1 AND thread_id = $2`,
           [tenant, threadId],
         );
+        await client.query(
+          `INSERT INTO pachigraph.thread_tombstones (tenant_id, thread_id)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [tenant, threadId],
+        );
       });
-      await objects.deletePrefix(`t/${digest(tenant)}/${threadId}/`);
+      await retryPendingDeletes(pool, objects, tenant);
       return { deleted: true };
     },
 
@@ -333,12 +390,18 @@ export function createHistory(
            )`,
         [tenant],
       );
+      const pending = await pool.query<{ pending_deletes: string }>(
+        `SELECT count(*)::text AS pending_deletes
+         FROM pachigraph.pending_deletes WHERE tenant_id = $1`,
+        [tenant],
+      );
       const row = result.rows[0];
       return {
         threads: Number(row.threads),
         records: Number(row.records),
         text_bytes: Number(row.text_bytes),
         last_ingested_at: row.last_ingested_at,
+        pending_deletes: Number(pending.rows[0].pending_deletes),
       };
     },
   };

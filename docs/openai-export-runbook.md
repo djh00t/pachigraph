@@ -68,7 +68,8 @@ python3 -c "import oe_identity as i; print(i.thread_id('<synthetic conversation 
 3. Delete it from the owner's browser session with a same-origin
    `DELETE /api/thread?id=<thread_id>`. A thread delete is permanent. It is
    never a step in a repair, refresh, or re-import. There is no untombstone.
-4. Rerun with a fresh `<state>` after the purge in the fresh-state section.
+4. Rerun with a fresh `<state>` after purging the quarantine store (or moving
+   it away first), as described in the fresh-state section.
    Expected: 410, `tombstoned` 1, exit 0. The thread is not restored.
 5. Rerun with that same state. Expected: `uploads` 0 and no request for that
    thread.
@@ -140,14 +141,17 @@ churn is accepted. There is no clean-copy procedure in v1. Earlier revisions
 stay readable. Never delete a thread to tidy revisions.
 
 If `<state>.quarantine` exists and `<state>` does not, the collector exits 7
-before reading the zip. Purge the old store before any fresh `<state>`:
+before reading the zip. Remove the old store before any fresh `<state>`. Either
+purge it:
 
 ```
 python3 collector/collector.py openai-export --state <state> quarantine purge --all
 ```
 
-That purge works when the state file is already gone. Use a fresh state only
-when a scanner upgrade makes a re-scan worth the churn.
+or move the store away first. The purge works when the state file is already
+gone, removes the quarantine store, and does not create one. Then a fresh run
+succeeds. Use a fresh state only when a scanner upgrade makes a re-scan worth
+the churn.
 
 ## Cleanup
 

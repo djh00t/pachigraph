@@ -333,19 +333,19 @@ def _conversation(
                 ),
             }
         )
-        if pending:
-            _flush(
-                url,
-                token,
-                tenant,
-                pending[0]["thread"],
-                ready,
-                dry_run,
-                counters,
-                progress,
-                store,
-                upload,
-            )
+    if pending:
+        _flush(
+            url,
+            token,
+            tenant,
+            pending[0]["thread"],
+            ready,
+            dry_run,
+            counters,
+            progress,
+            store,
+            upload,
+        )
 
 
 def _flush(url, token, tenant, thread, ready, dry_run, counters, progress, store, upload):

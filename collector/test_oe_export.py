@@ -50,7 +50,10 @@ class ExportTests(unittest.TestCase):
         return [
             oe_fixtures.conversation(
                 "conversation-alpha",
-                [oe_fixtures.visible_node("n1", None, body)],
+                [
+                    oe_fixtures.visible_node("n1", None, body),
+                    oe_fixtures.visible_node("n2", "n1", body + " next"),
+                ],
             )
         ]
 

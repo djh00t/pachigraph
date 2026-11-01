@@ -26,7 +26,7 @@ private S3-compatible bucket. Install with `make install`. Configure:
 
 | Variable | Contract |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string; schema `pachigraph` is app-owned |
+| `DATABASE_URL` | PostgreSQL connection string. Migrations need ownership of schema `pachigraph`, not database `CREATE`, once that schema exists. A first run on an empty database needs database `CREATE` or a schema created in advance. Before switching an existing deployment to a new role, transfer ownership of the schema and its objects to that role |
 | `S3_BUCKET` | Dedicated private source-object bucket |
 | `AWS_REGION` | AWS region; defaults to `ap-southeast-2` |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Standard AWS credential chain; keep out of files and Git |

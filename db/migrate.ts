@@ -10,7 +10,13 @@ export async function migrate(pool: Pool): Promise<void> {
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('pachigraph:migrations', 0))",
     );
-    await client.query('CREATE SCHEMA IF NOT EXISTS pachigraph');
+    // PostgreSQL checks database-level CREATE before it evaluates IF NOT
+    // EXISTS, so only create the schema when it is missing. A role that owns
+    // an existing schema can then migrate without database CREATE.
+    const schema = await client.query<{ missing: boolean }>(
+      "SELECT to_regnamespace('pachigraph') IS NULL AS missing",
+    );
+    if (schema.rows[0].missing) await client.query('CREATE SCHEMA pachigraph');
     await client.query(`
       CREATE TABLE IF NOT EXISTS pachigraph.schema_migrations (
         filename TEXT PRIMARY KEY,

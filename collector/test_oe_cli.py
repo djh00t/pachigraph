@@ -110,6 +110,59 @@ if __name__ == "__main__":
     unittest.main()
 
 class ReviewCliTests(unittest.TestCase):
+    def test_fresh_state_runbook_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = oe_fixtures.build_zip(
+                directory,
+                [oe_fixtures.hidden_messages_conversation()],
+                seed=11,
+                name="fresh.zip",
+            )
+            state = Path(directory) / "state.sqlite3"
+            store_path = Path(str(state) + ".quarantine")
+            import oe_qstore
+
+            store = oe_qstore.Store(state, allow_missing_state=True)
+            store.close()
+            run = [
+                "openai-export",
+                "--zip",
+                str(path),
+                "--url",
+                "http://127.0.0.1:9",
+                "--state",
+                str(state),
+            ]
+            purge = [
+                "openai-export",
+                "--state",
+                str(state),
+                "quarantine",
+                "purge",
+                "--all",
+            ]
+            with (
+                mock.patch(
+                    "openai_export.fetch_whoami",
+                    return_value={"tenant": "t-aaaaaaaaaaaaaaaa"},
+                ),
+                mock.patch.object(
+                    collector,
+                    "_upload",
+                    side_effect=lambda _url, _token, payload: (
+                        200,
+                        {"stored": len(payload["records"]), "duplicate": 0},
+                    ),
+                ),
+                mock.patch.object(collector, "_scanner", return_value=[]),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(collector.main(run), 7)
+                self.assertEqual(collector.main(purge), 0)
+                self.assertFalse(store_path.exists())
+                self.assertEqual(collector.main(run), 0)
+
     def test_whoami_redirect_does_not_send_bearer(self):
         import http.server
         import threading

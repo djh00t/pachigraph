@@ -1,10 +1,12 @@
 """Fixture builders for the synthetic OpenAI export."""
 
 import json
+import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
+import collector
 import oe_fixtures
 
 
@@ -169,6 +171,21 @@ class FixtureZipTests(unittest.TestCase):
         self.assertIn("text-\\ud800", document)
         self.assertIn("id-\\ud800", document)
 
+    def test_fake_secret_is_scanned_in_excluded_members_and_hidden_message(self):
+        secret = oe_fixtures.fake_secret()
+        with self._tmp() as directory:
+            path = oe_fixtures.build_zip(
+                directory, [oe_fixtures.hidden_messages_conversation()]
+            )
+            with zipfile.ZipFile(path) as archive:
+                user = archive.read("user.json").decode()
+                env = archive.read("sites/x/env").decode()
+                conversations = archive.read("conversations.json").decode()
+
+        for contents in (user, env, conversations):
+            self.assertIn(secret, contents)
+            self.assertTrue(collector._scanner(contents))
+
     def _conversations(self, path: Path):
         found = []
         with zipfile.ZipFile(path) as zf:
@@ -182,7 +199,7 @@ class FixtureZipTests(unittest.TestCase):
         return found
 
     def _tmp(self):
-        return __import__("tempfile").TemporaryDirectory()
+        return tempfile.TemporaryDirectory()
 
 
 if __name__ == "__main__":

@@ -513,3 +513,88 @@ test('quota rejects a batch before any object is written', async () => {
   assert.equal(freed.rows[0].records, '0');
   assert.equal(freed.rows[0].bytes, '0');
 });
+
+// Shared with collector/oe_envelope.py. The record is one string field, so
+// this is the same byte string history.ts builds at the 384 KiB check.
+function padEnvelope(unit: string, target: number) {
+  const id = 'b'.repeat(64);
+  const bytes = (text: string) =>
+    Buffer.byteLength(
+      `{"id":"${id}","record":{"source":"pad"},"text":${JSON.stringify(text)},"timestamp":"2020-01-02T03:04:05.000Z"}`,
+    );
+  const cost = bytes(unit) - bytes('');
+  if (cost <= 0)
+    throw new Error('envelope target is not reachable');
+  const count = Math.floor((target - bytes('')) / cost);
+  const text = unit.repeat(count) + 'a'.repeat(target - bytes(unit.repeat(count)));
+  assert.equal(bytes(text), target);
+  return text;
+}
+
+test('envelope cases match the server cap and a hidden float revision', async () => {
+  const { history } = setup();
+  const cases = JSON.parse(
+    await readFile(
+      new URL('../collector/fixtures/oe_envelope_cases.json', import.meta.url),
+      'utf8',
+    ),
+  ) as { unit: string; target_bytes: number }[];
+  assert.ok(cases.length >= 1);
+  for (const item of cases) {
+    const text = padEnvelope(item.unit, 384 * 1024);
+    assert.deepEqual(
+      await history.ingest(tenantA, {
+        thread_id: THREAD,
+        records: [
+          {
+            id: sha256(`pad-exact-${item.unit}`),
+            timestamp: '2020-01-02T03:04:05.000Z',
+            text,
+            record: { source: 'pad' },
+          },
+        ],
+      }),
+      { stored: 1, duplicate: 0 },
+    );
+    await assert.rejects(
+      history.ingest(tenantA, {
+        thread_id: THREAD,
+        records: [
+          {
+            id: sha256(`pad-over-${item.unit}`),
+            timestamp: '2020-01-02T03:04:05.000Z',
+            text: text + 'a',
+            record: { source: 'pad' },
+          },
+        ],
+      }),
+      { status: 413 },
+    );
+  }
+  const hidden = {
+    content: { parts: [0.1, 1, 1e21, 1e-7] },
+    visibility: 'hidden',
+  };
+  const source = sha256('hidden-floats');
+  await history.ingest(tenantA, {
+    thread_id: THREAD,
+    records: [
+      {
+        id: source,
+        timestamp: '2020-01-02T03:04:05.000Z',
+        text: '',
+        record: hidden,
+      },
+    ],
+  });
+  const row = await pool.query<{ revision_id: string }>(
+    `SELECT revision_id FROM pachigraph.history_records
+      WHERE tenant_id = $1 AND source_id = $2`,
+    [tenantA, source],
+  );
+  // Python oe_envelope.revision of the same sanitized record.
+  assert.equal(
+    row.rows[0].revision_id,
+    'e9e4a6e40762a43193cb039b0b94ea55722cfa073599f892130d6ebd104bdd1b',
+  );
+});

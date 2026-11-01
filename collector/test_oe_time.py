@@ -7,15 +7,7 @@ import oe_time
 
 class TimeTests(unittest.TestCase):
     def test_timestamps(self):
-        cases = {
-            None: None,
-            True: None,
-            math.nan: None,
-            math.inf: None,
-            -62135596801: None,
-            253402300800: None,
-        }
-        for value, _expected in cases.items():
+        for value in (None, True, math.nan, math.inf, -62135596801, 253402300800):
             counters = Counter()
             self.assertIsNone(oe_time.format_timestamp(value, counters))
             self.assertEqual(counters["no_timestamp"], 1)

@@ -15,8 +15,8 @@ _ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
 
 def fake_secret() -> str:
-    """A synthetic marker assembled from fragments so the literal is not stored."""
-    return "".join(("syn", "thetic", "-secret-", "marker"))
+    """A synthetic scanner-detectable token assembled from fragments."""
+    return "".join(("gh", "p_", "12345678901234567890", "12345678901234567890"))
 
 
 def _payload(text: str) -> str:
@@ -25,8 +25,8 @@ def _payload(text: str) -> str:
 
 def default_extras() -> dict[str, str]:
     return {
-        "user.json": _payload("synthetic-user"),
-        "sites/x/env": _payload("synthetic-env"),
+        "user.json": _payload("synthetic-user " + fake_secret()),
+        "sites/x/env": _payload("synthetic-env " + fake_secret()),
         "chat.html": _payload("synthetic-html"),
         "file-..x": _payload("synthetic-file"),
     }
@@ -42,12 +42,6 @@ def _write(zf: zipfile.ZipFile, name: str, data: str | bytes, seed: int) -> None
     info.comment = str(seed).encode("ascii")
     raw = data.encode("utf-8") if isinstance(data, str) else data
     zf.writestr(info, raw)
-
-
-def _bodies(conversations, raw: bool) -> list[str]:
-    if raw:
-        return list(conversations)
-    return [_dumps(conversations)]
 
 
 def _shard_bodies(conversations, raw: bool) -> list[str]:
@@ -246,7 +240,7 @@ def hidden_messages_conversation() -> dict:
         "hid",
         "py",
         [],
-        message("hid-m", "assistant", [CANARY], hidden=True),
+        message("hid-m", "assistant", [CANARY, fake_secret()], hidden=True),
     )
     return conversation("c-hidden", [root, system, tool, python, visual], "hid")
 

@@ -34,7 +34,20 @@ class ClassifyTests(unittest.TestCase):
         )
         self.assertEqual(visible["visibility"], "visible")
         self.assertEqual(visible["text"], "alpha")
-        self.assertNotIn("content", {k: visible[k] for k in visible if k == "content" and visible[k]})
+        self.assertIsNone(visible["content"])
+
+        multimodal = oe_fixtures.node(
+            "mm", None, [],
+            oe_fixtures.message("mm", "assistant", ["caption"], content_type="multimodal_text"),
+        )
+        self.assertEqual(oe_text.classify(multimodal, Counter())["visibility"], "visible")
+
+    def test_non_string_role_and_recipient_are_hidden(self):
+        for role, recipient in (([], None), ("assistant", {})):
+            node = oe_fixtures.node(
+                "n", None, [], oe_fixtures.message("m", role, ["text"], recipient=recipient)
+            )
+            self.assertEqual(oe_text.classify(node, Counter())["visibility"], "hidden")
 
         mixed = oe_fixtures.node(
             "m",

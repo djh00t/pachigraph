@@ -2,7 +2,6 @@
 
 
 def build_record(conversation_id, node, classified, iso_time) -> dict:
-    message = node.get("message") if isinstance(node.get("message"), dict) else {}
     record = {
         "source": {"platform": "chatgpt", "conversation_id": conversation_id},
         "node_id": node.get("id"),

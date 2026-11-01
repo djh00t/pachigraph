@@ -102,12 +102,22 @@ function validate(
   }
 }
 
+const UUID_V5 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isChatGptThread(threadId: string) {
+  return UUID_V5.test(threadId);
+}
+
 function citation(
   id: string,
   threadId: string,
   sourceId: string,
   timestamp: string,
 ): string {
+  if (isChatGptThread(threadId)) {
+    return `ChatGPT conversation ${threadId}, event ${sourceId}, ${timestamp}; /?id=${id}`;
+  }
   return `Codex thread ${threadId}, event ${sourceId}, ${timestamp}; /?id=${id}; codex://threads/${threadId}#${sourceId}`;
 }
 

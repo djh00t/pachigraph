@@ -26,7 +26,7 @@ private S3-compatible bucket. Install with `make install`. Configure:
 
 | Variable | Contract |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string; schema `pachigraph` is app-owned |
+| `DATABASE_URL` | PostgreSQL connection string. Migrations need ownership of schema `pachigraph`, not database `CREATE`, once that schema exists. For a first run on an empty database, create the schema in advance with `CREATE SCHEMA pachigraph AUTHORIZATION <role>` rather than granting database `CREATE`, which would stay granted after the run. The migrating role should be `NOSUPERUSER NOCREATEDB NOCREATEROLE`. Before switching an existing deployment to a new role, transfer ownership of the schema and its objects to that role |
 | `S3_BUCKET` | Dedicated private source-object bucket |
 | `AWS_REGION` | AWS region; defaults to `ap-southeast-2` |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Standard AWS credential chain; keep out of files and Git |
@@ -39,8 +39,16 @@ private S3-compatible bucket. Install with `make install`. Configure:
 | `HOST`, `PORT` | Bind address and port; defaults to `0.0.0.0:3000` |
 
 Run `make check`, `make build`, then `npm start`. Tests requiring PostgreSQL use
-`PACHIGRAPH_TEST_DATABASE_URL` with a disposable test database; never target
-production with tests. SQL migrations are ordered, transactionally serialized,
+`PACHIGRAPH_TEST_DATABASE_URL` with a disposable test database, and
+`PACHIGRAPH_TEST_DATABASE_NAME` set to `pachigraph_test_ci` or
+`pachigraph_test_<32 hex characters>` and matching the database name in that URL;
+the tests refuse to run otherwise. Never target production with tests. The test
+login needs `CREATEDB` and `CREATEROLE` (CI uses a superuser), because one test
+creates and then drops a throwaway database and login role in that PostgreSQL
+cluster. That test also runs `GRANT <role> TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`
+(PostgreSQL 16 or later), because from 16 a `CREATEROLE` login gets only `ADMIN`
+on a role it creates; `INHERIT` and `SET` let it create the throwaway role's
+schema and read it. SQL migrations are ordered, transactionally serialized,
 and hash checked. Readiness checks PostgreSQL and S3; `/health` checks the server.
 The production container runs without root or a writable application filesystem.
 CI runs the same authentication smoke against both the standalone output and

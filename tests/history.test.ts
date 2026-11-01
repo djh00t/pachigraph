@@ -282,6 +282,34 @@ test('concurrent delete and ingest cannot replay a tombstoned thread', async () 
   assert.equal(objects.objects.size, 0);
 });
 
+test('a version-5 thread cites ChatGPT and v4 and v7 stay Codex', async () => {
+  const { history } = setup();
+  const v5 = '018f47a8-4af3-5b83-8f0e-6f2b4e955c12';
+  const v4 = '018f47a8-4af3-4b83-8f0e-6f2b4e955c12';
+  await history.ingest(tenantA, { ...input(), thread_id: v5 });
+  const imported = (await history.search(tenantA, 'orbital')).results[0];
+  assert.equal(
+    imported.citation,
+    `ChatGPT conversation ${v5}, event ${SOURCE}, 2026-09-05T01:02:03.000Z; /?id=${imported.id}`,
+  );
+  assert.equal(imported.citation.includes('codex://'), false);
+  await history.ingest(tenantA, {
+    ...input('version four passage'),
+    thread_id: v4,
+  });
+  const legacy = (await history.search(tenantA, 'version four')).results[0];
+  assert.equal(
+    legacy.citation,
+    `Codex thread ${v4}, event ${SOURCE}, 2026-09-05T01:02:03.000Z; /?id=${legacy.id}; codex://threads/${v4}#${SOURCE}`,
+  );
+  await history.ingest(tenantA, input('version seven passage'));
+  const current = (await history.search(tenantA, 'version seven')).results[0];
+  assert.equal(
+    current.citation,
+    `Codex thread ${THREAD}, event ${SOURCE}, 2026-09-05T01:02:03.000Z; /?id=${current.id}; codex://threads/${THREAD}#${SOURCE}`,
+  );
+});
+
 test('PostgreSQL FTS returns plain snippets and source citations', async () => {
   const { history } = setup();
   await history.ingest(tenantA, input('Needle phrase: alpha-beta (gamma).'));

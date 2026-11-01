@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { unauthorized } from 'next/navigation';
 import { getHistory, getPool } from '../db';
 import { sessionPrincipal } from '../server/auth.ts';
-import { loadArchive } from './archive.ts';
+import { loadArchive, SourceEvidence } from './archive.ts';
 import { requireUser } from './auth';
 
 export const dynamic = 'force-dynamic';
@@ -157,20 +157,10 @@ async function HistoryPage({ params }: { params: Params }) {
             <>
               <p className="eyebrow">{selected.timestamp}</p>
               <p className="source-text">{selected.text}</p>
-              <dl>
-                <dt>Original conversation</dt>
-                <dd>
-                  <a href={'codex://threads/' + selected.thread_id}>
-                    {selected.thread_id}
-                  </a>
-                </dd>
-                <dt>Citation</dt>
-                <dd>{selected.citation}</dd>
-              </dl>
-              <p className="muted">
-                Opening the original requires Codex on this device. Earlier
-                revisions can appear separately.
-              </p>
+              <SourceEvidence
+                threadId={selected.thread_id}
+                citation={selected.citation}
+              />
               <details>
                 <summary>Sanitized source record</summary>
                 <pre>{JSON.stringify(selected.record, null, 2)}</pre>

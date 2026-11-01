@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { after, before, beforeEach, test } from 'node:test';
 
-import { loadArchive } from '../app/archive.ts';
+import { loadArchive, SourceEvidence } from '../app/archive.ts';
 import { migrate } from '../db/migrate.ts';
 import { createKeys } from '../server/api-keys.ts';
 import {
@@ -347,10 +349,7 @@ test('MCP search fetch and status stay inside the caller tenant', async () => {
       )
     ).json(),
   );
-  assert.ok(
-    /records\\?":0/.test(statusBody),
-    statusBody.slice(0, 800),
-  );
+  assert.ok(/records\\?":0/.test(statusBody), statusBody.slice(0, 800));
 
   const throughDispatch = await safeResponse(() =>
     dispatchMCP(rpc('tools/list'), profile('subject-a'), keys, history, pool),
@@ -398,4 +397,27 @@ test('MCP search fetch and status stay inside the caller tenant', async () => {
   );
   assert.match(route, /dispatchMCP\(/);
   assert.equal(route.includes('userId'), false);
+});
+
+test('a version-5 thread is labelled as a ChatGPT import', () => {
+  const v5 = '018f47a8-4af3-5b83-8f0e-6f2b4e955c12';
+  const v7 = '018f47a8-4af3-7b83-bf0e-6f2b4e955c12';
+  const imported = renderToStaticMarkup(
+    createElement(SourceEvidence, {
+      threadId: v5,
+      citation: `ChatGPT conversation ${v5}, event ${'a'.repeat(64)}, 2026-09-05T01:02:03.000Z; /?id=record`,
+    }),
+  );
+  assert.equal(imported.includes('Imported from a ChatGPT export'), true);
+  assert.equal(imported.includes('codex://'), false);
+  assert.equal(imported.includes('Opening the original requires Codex'), false);
+  const codex = renderToStaticMarkup(
+    createElement(SourceEvidence, {
+      threadId: v7,
+      citation: `Codex thread ${v7}, event event, 2026-09-05T01:02:03.000Z; /?id=record; codex://threads/${v7}#event`,
+    }),
+  );
+  assert.equal(codex.includes('href="codex://threads/' + v7), true);
+  assert.equal(codex.includes('Opening the original requires Codex'), true);
+  assert.equal(codex.includes('Imported from a ChatGPT export'), false);
 });

@@ -15,14 +15,7 @@ def _secret():
 
 def _scanner_for(secret, rule="generic-rule"):
     def scanner(text):
-        if secret in text and REDACTION not in text.split(secret)[-1] and secret in text:
-            if secret not in text:
-                return []
-            if REDACTION in text and secret not in text:
-                return []
-            if secret in text:
-                return [{"RuleID": rule, "Secret": secret}]
-        return []
+        return [{"RuleID": rule, "Secret": secret}] if secret in text else []
 
     return scanner
 
@@ -117,7 +110,6 @@ class RedactionTests(unittest.TestCase):
                 other, keys, None, _scanner_for(secret + "x"), _meta()
             )
             # Same redacted shape can still differ when the secret, and therefore fp, differs.
-            # Force the second secret to redact to the same placeholder.
             self.assertNotEqual(
                 oe_quarantine.redacted_revision(left),
                 oe_quarantine.redacted_revision(right),

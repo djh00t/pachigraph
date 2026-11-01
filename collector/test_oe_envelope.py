@@ -40,21 +40,53 @@ class EnvelopeTests(unittest.TestCase):
             self.assertEqual(oe_envelope.js_number(value), text)
 
     def test_envelope_limit(self):
-        text = oe_envelope.pad_text(RECORD_ID, RECORD, TIMESTAMP, "a", oe_envelope.CAP)
+        text = oe_envelope.pad_text(RECORD_ID, RECORD, TIMESTAMP, "a", 393216)
         self.assertFalse(oe_envelope.is_oversized(RECORD_ID, RECORD, text, TIMESTAMP))
         self.assertTrue(
             oe_envelope.is_oversized(RECORD_ID, RECORD, text + "a", TIMESTAMP)
         )
         for case in json.loads(CASES.read_text(encoding="utf-8")):
-            padded = oe_envelope.pad_text(
-                RECORD_ID, RECORD, TIMESTAMP, case["unit"], case["target_bytes"]
-            )
+            unit = case["unit"]
+            zero = oe_envelope.envelope_bytes(RECORD_ID, RECORD, "", TIMESTAMP)
+            cost = oe_envelope.envelope_bytes(RECORD_ID, RECORD, unit, TIMESTAMP) - zero
+            count, remainder = divmod(393216 - zero, cost)
+            padded = unit * count + "a" * remainder
             self.assertEqual(
                 oe_envelope.envelope_bytes(RECORD_ID, RECORD, padded, TIMESTAMP),
-                case["target_bytes"],
+                393216,
+            )
+            self.assertFalse(
+                oe_envelope.is_oversized(RECORD_ID, RECORD, padded, TIMESTAMP)
+            )
+            self.assertTrue(
+                oe_envelope.is_oversized(RECORD_ID, RECORD, padded + "a", TIMESTAMP)
             )
 
+    def test_canonical_depth_matches_server(self):
+        def nested(depth):
+            value = "leaf"
+            for _ in range(depth):
+                value = {"child": value}
+            return value
+
+        oe_envelope.canonical(nested(64))
+        with self.assertRaises(ValueError):
+            oe_envelope.canonical(nested(65))
+
+    def test_canonical_rejects_non_finite_numbers(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                oe_envelope.canonical({"value": value})
+
     def test_envelope_limit_revision(self):
+        hidden = {
+            "content": {"parts": [0.1, 1, 1e21, 1e-7]},
+            "visibility": "hidden",
+        }
+        self.assertEqual(
+            oe_envelope.revision(hidden, "", TIMESTAMP),
+            "e9e4a6e40762a43193cb039b0b94ea55722cfa073599f892130d6ebd104bdd1b",
+        )
         left = {"z": 1, "a": {"q": 2, "b": 3}}
         right = {"a": {"b": 3, "q": 2}, "z": 1}
         self.assertEqual(

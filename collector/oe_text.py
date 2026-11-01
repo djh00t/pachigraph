@@ -13,9 +13,10 @@ def classify(node, counters):
     metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
     hidden_flag = metadata.get("is_visually_hidden_from_conversation") is True
     visible = (
-        role in {"user", "assistant"}
+        isinstance(role, str)
+        and role in {"user", "assistant"}
         and content_type in {"text", "multimodal_text"}
-        and recipient in {None, "all"}
+        and (recipient is None or isinstance(recipient, str) and recipient == "all")
         and not hidden_flag
     )
     parts = content.get("parts")

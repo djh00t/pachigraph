@@ -398,7 +398,7 @@ class State:
             self.db.commit()
             return
         if current != tenant:
-            raise RuntimeError("collector failed")
+            raise RuntimeError("state belongs to a different tenant")
 
     def progress(self, url, source, thread, mode):
         row = self.db.execute(
@@ -659,8 +659,12 @@ def collect(
     if not dry_run:
         import openai_export
 
-        who = openai_export.fetch_whoami(url, token)
-        state.pin_tenant(url, who["tenant"])
+        try:
+            who = openai_export.fetch_whoami(url, token)
+            state.pin_tenant(url, who["tenant"])
+        except Exception:
+            state.close()
+            raise
     stats = {
         "threads": 0,
         "records": 0,
@@ -941,6 +945,8 @@ def _quarantine_command(state, argv) -> int:
     group.add_argument("--all", action="store_true")
     parsed = parser.parse_args(argv)
     allow_missing = parsed.command == "purge" and parsed.all
+    if allow_missing and not (oe_qstore.quarantine_path(state).exists() or oe_qstore.quarantine_path(state).is_symlink()):
+        return 0
     try:
         store = oe_qstore.Store(state, allow_missing_state=allow_missing)
     except oe_qstore.QuarantineError:
@@ -954,12 +960,16 @@ def _quarantine_command(state, argv) -> int:
             except oe_qstore.QuarantineError:
                 return 7
         try:
-            return oe_qcli.purge(
+            result = oe_qcli.purge(
                 store,
                 older_than=getattr(parsed, "older_than", None),
                 thread=getattr(parsed, "thread", None),
                 all_rows=getattr(parsed, "all", False),
             )
+            if allow_missing:
+                store.close()
+                store.path.unlink()
+            return result
         except oe_qstore.QuarantineError:
             return 7
     finally:
@@ -1070,8 +1080,12 @@ def main(argv: list[str] | None = None) -> int:
                     capture_output=True,
                     text=True,
                 )
-    except Exception:  # noqa: BLE001 - CLI errors must not expose secret-bearing details.
-        print("collector failed", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - CLI errors must not expose secret-bearing details.
+        import openai_export
+        if isinstance(exc, openai_export.AuthFailure):
+            print("authentication failed", file=sys.stderr)
+            return 6
+        print("state belongs to a different tenant" if str(exc) == "state belongs to a different tenant" else "collector failed", file=sys.stderr)
         return 1
     return 0
 

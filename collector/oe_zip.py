@@ -7,14 +7,12 @@ import os
 import re
 import struct
 import zipfile
-import zlib
 from dataclasses import dataclass
 
 SIG_EOCD = b"PK\x05\x06"
 SIG_ZIP64_LOC = b"PK\x06\x07"
 SIG_ZIP64_EOCD = b"PK\x06\x06"
 SIG_CD = b"PK\x01\x02"
-SIG_LOCAL = b"PK\x03\x04"
 LOCATOR_SIZE = 20
 ZIP64_FIXED = 56
 
@@ -31,9 +29,10 @@ COUNT_CAP = 100_000
 class ZipAbort(Exception):
     """A zip, layout or encoding failure. Maps to exit 3."""
 
-    def __init__(self, counter: str | None = None):
-        super().__init__(counter or "zip rejected")
+    def __init__(self, counter: str | None = None, *, reason: str | None = None):
+        super().__init__(counter or reason or "zip rejected")
         self.counter = counter
+        self.reason = reason
 
 
 @dataclass
@@ -58,7 +57,6 @@ class Tail:
     cd_offset: int
     eocd_pos: int
     zip64: bool
-    zip64_record_size: int
 
 
 class ReadState:
@@ -84,10 +82,10 @@ def read_member(zf, info, state: ReadState, loads):
     cap = state.limits.max_member_bytes
     data = _read_opened(zf, info, cap)
     if len(data) > cap:
-        raise ZipAbort()
+        raise ZipAbort(reason="member_read_limit")
     state.total += len(data)
     if state.total > state.limits.max_total_bytes:
-        raise ZipAbort()
+        raise ZipAbort(reason="total_limit")
     try:
         s = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -99,64 +97,12 @@ def read_member(zf, info, state: ReadState, loads):
 
 
 def _read_opened(zf, info, cap: int) -> bytes:
-    """Call ``ZipFile.open`` then ``read(cap + 1)``.
-
-    If the uncompressed-size header understates the payload, ``ZipExtFile``
-    stops early (and may fail the CRC). The counted total then uses the
-    capped compressed stream instead.
-    """
+    """Read at most one byte beyond the member cap, checking ZIP integrity."""
     try:
         with zf.open(info, "r") as handle:
-            data = handle.read(cap + 1)
-    except zipfile.BadZipFile:
-        data = b""
-    if (
-        not data
-        or info.file_size < info.compress_size
-        or (info.compress_type == zipfile.ZIP_STORED and info.compress_size > len(data))
-    ):
-        raw = _read_capped(zf, info, cap)
-        if len(raw) > len(data):
-            return raw
-    return data
-
-
-def _read_capped(zf, info, cap: int) -> bytes:
-    """``f.read(cap + 1)`` without trusting an understated uncompressed size.
-
-    ``ZipExtFile`` stops at the header's ``file_size``. A header that lies low
-    would hide bytes from the running total, so the compressed stream is
-    inflated up to ``cap + 1`` bytes instead.
-    """
-    fp = zf.fp
-    fp.seek(info.header_offset)
-    local = fp.read(30)
-    if len(local) != 30 or local[:4] != SIG_LOCAL:
-        raise ZipAbort()
-    method = struct.unpack_from("<H", local, 8)[0]
-    name_len, extra_len = struct.unpack_from("<HH", local, 26)
-    fp.seek(name_len + extra_len, os.SEEK_CUR)
-    if method == zipfile.ZIP_STORED:
-        data = fp.read(min(info.compress_size, cap + 1))
-    elif method == zipfile.ZIP_DEFLATED:
-        remaining = info.compress_size
-        dec = zlib.decompressobj(-15)
-        chunks = []
-        produced = 0
-        while remaining > 0 and produced <= cap:
-            block = fp.read(min(remaining, 1024 * 1024))
-            if not block:
-                break
-            remaining -= len(block)
-            piece = dec.decompress(block, cap + 1 - produced)
-            chunks.append(piece)
-            produced += len(piece)
-        data = b"".join(chunks)
-    else:
-        raise ZipAbort()
-    if len(data) <= cap and info.compress_size == 0 and info.file_size == 0:
-        return data
-    return data
+            return handle.read(cap + 1)
+    except zipfile.BadZipFile as exc:
+        raise ZipAbort() from exc
 
 
 def read_tail(path) -> Tail:
@@ -189,30 +135,32 @@ def _read_tail(raw) -> Tail:
     if eocd_pos + 22 + comment_len != filesize:
         raise ZipAbort()
     zip64 = False
-    record_size = 0
     if eocd_pos >= LOCATOR_SIZE:
         raw.seek(eocd_pos - LOCATOR_SIZE)
         loc = raw.read(LOCATOR_SIZE)
         if len(loc) == LOCATOR_SIZE and loc[:4] == SIG_ZIP64_LOC:
             _lsig, _diskno, reloff, _disks = struct.unpack("<4sLQL", loc)
+            if reloff != eocd_pos - LOCATOR_SIZE - ZIP64_FIXED:
+                raise ZipAbort()
             raw.seek(reloff)
             zdata = raw.read(ZIP64_FIXED)
             if len(zdata) != ZIP64_FIXED or zdata[:4] != SIG_ZIP64_EOCD:
                 raise ZipAbort()
             z = struct.unpack("<4sQHHLLQQQQ", zdata)
+            if z[1] != 44:
+                raise ZipAbort()
             entries = z[7]
             cd_size = z[8]
             cd_offset = z[9]
-            record_size = z[1] + 12
             zip64 = True
-    return Tail(entries, cd_size, cd_offset, eocd_pos, zip64, record_size)
+    return Tail(entries, cd_size, cd_offset, eocd_pos, zip64)
 
 
 def locate_start(tail: Tail) -> int:
     """Directory start, computed the way ``ZipFile`` does, then compared."""
     start = tail.eocd_pos - tail.cd_size
     if tail.zip64:
-        start -= tail.zip64_record_size + LOCATOR_SIZE
+        start -= ZIP64_FIXED + LOCATOR_SIZE
     if start != tail.cd_offset or start < 0:
         raise ZipAbort()
     return start
@@ -233,7 +181,7 @@ def walk_central_directory(raw, start: int, tail: Tail, limits: Limits) -> int:
         name_len, extra_len, comment_len = struct.unpack_from("<HHH", hdr, 28)
         variable = name_len + extra_len + comment_len
         if variable > remaining - 46:
-            raise ZipAbort()
+            raise ZipAbort(reason="directory_overrun")
         if variable:
             skipped = raw.read(variable)
             if len(skipped) != variable:
@@ -241,7 +189,7 @@ def walk_central_directory(raw, start: int, tail: Tail, limits: Limits) -> int:
         remaining -= 46 + variable
         count += 1
         if count > limits.max_members:
-            raise ZipAbort()
+            raise ZipAbort(reason="walk_member_limit")
     if count != tail.entries:
         raise ZipAbort()
     return count
@@ -251,8 +199,10 @@ def precheck(path, limits: Limits | None = None) -> Tail:
     limits = limits or Limits()
     with open(path, "rb") as raw:
         tail = _read_tail(raw)
-        if tail.entries > limits.max_members or tail.cd_size > limits.max_cd_bytes:
-            raise ZipAbort()
+        if tail.entries > limits.max_members:
+            raise ZipAbort(reason="tail_member_limit")
+        if tail.cd_size > limits.max_cd_bytes:
+            raise ZipAbort(reason="directory_size_limit")
         start = locate_start(tail)
         walk_central_directory(raw, start, tail, limits)
         return tail
@@ -264,7 +214,7 @@ def open_export(path, limits: Limits | None = None) -> zipfile.ZipFile:
     zf = zipfile.ZipFile(path)
     try:
         if len(zf.infolist()) > limits.max_members:
-            raise ZipAbort()
+            raise ZipAbort(reason="parsed_member_limit")
         seen = set()
         for info in zf.infolist():
             if not is_allowlisted(info.filename):
@@ -272,7 +222,7 @@ def open_export(path, limits: Limits | None = None) -> zipfile.ZipFile:
             if info.filename in seen or info.flag_bits & 0x1:
                 raise ZipAbort()
             if info.file_size > limits.max_member_bytes:
-                raise ZipAbort()
+                raise ZipAbort(reason="member_size_limit")
             seen.add(info.filename)
     except Exception:
         zf.close()
@@ -307,7 +257,7 @@ def recognized_manifest_shards(obj):
     for value in obj.values():
         if not isinstance(value, list):
             continue
-        if all(isinstance(item, str) and _SHARD.fullmatch(item) for item in value):
+        if value and all(isinstance(item, str) and _SHARD.fullmatch(item) for item in value):
             if found is not None:
                 return None
             found = list(value)

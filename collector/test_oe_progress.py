@@ -1,3 +1,5 @@
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +8,17 @@ import oe_progress
 
 
 class ProgressTests(unittest.TestCase):
+    def test_state_file_created_with_private_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.sqlite3"
+            previous = os.umask(0o022)
+            try:
+                progress = oe_progress.Progress(path)
+            finally:
+                os.umask(previous)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            progress.close()
+
     def test_checkpoint_after_ack_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.sqlite3"

@@ -12,7 +12,7 @@ following records describe earlier releases and do not qualify Kubernetes.
 The image workflow keeps its existing push behavior. A manual run on `main` may
 also provide the exact source commit currently approved by code_pipeline. After
 the normal checks and immutable image build pass, the workflow renders
-`infra/k8s/workload` and `infra/k8s/routes` with the published digest and uploads
+`.flux/workload` and `.flux/routes` with the published digest and uploads
 one `cluster-release-evidence/release.json` artifact. The artifact binds the
 source and previous commits, workflow run and attempt, immutable image, complete
 layer renders and SHA-256 render digests.

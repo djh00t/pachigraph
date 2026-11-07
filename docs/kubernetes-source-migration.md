@@ -6,8 +6,8 @@ It preserves current objects; it does not deploy or transfer live ownership.
 
 ## Native source configuration
 
-`infra/k8s/workload/` renders the existing Pachigraph Deployment, Service and
-NetworkPolicy with current dev01 root labels/selectors. `infra/k8s/routes/`
+`.flux/workload/` renders the existing Pachigraph Deployment, Service and
+NetworkPolicy with current dev01 root labels/selectors. `.flux/routes/`
 renders the browser/API HTTPRoutes and existing browser OIDC policy with their
 raw gateway-child labels. Canonical manifests live at `workload/app.json`, `workload/network-policy.json` and `routes/route.json`. Child entrypoints load only local files; the parent references both directories as a combined offline preview under native default load restrictions.
 
@@ -38,8 +38,8 @@ application data recovery. No authenticated live probe is invoked here.
 
 ```bash
 node --test tests/kubernetes-sources.test.ts
-kubectl kustomize infra/k8s/workload
-kubectl kustomize infra/k8s/routes
+kubectl kustomize .flux/workload
+kubectl kustomize .flux/routes
 ```
 
 The one-time `.specify/specs/2-pachigraph-source-bundles/verify_central_baseline.py`

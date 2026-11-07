@@ -1,7 +1,8 @@
 # Issue 9: source contract review
 
-Status: partial implementation; the additive archive receipt mapping is in the
-ingest response, while source metadata and correction fields remain proposals.
+Status: partial implementation; the additive archive receipt mapping and
+bitemporal correction relation are implemented. Broader source metadata remains
+a proposal.
 Baseline: `d28c67beb2d5c96c2bb7a7874cbb77b52ba78187`.
 Tracking: <https://github.com/djh00t/pachigraph/issues/9>.
 
@@ -103,9 +104,15 @@ known unbounded interval, not unknown. Empty and reversed closed intervals are
 rejected. Existing `timestamp` remains source time and never supplies valid
 time. Legacy records keep their revision IDs and backfill validity as unknown.
 `recorded_from` is server-owned and comes from the existing ingestion receipt
-instant (`ingested_at`); `recorded_to` is open until a separate correction/
-supersession slice closes it. This slice stores and fetches both time dimensions
-but does not implement supersession or concurrent correction handling.
+instant (`ingested_at`); `recorded_to` remains open. New corrections carry an
+owner/thread-scoped `corrects_id` to one immutable predecessor. The relation is
+stored on the correction and exact fetch returns it plus the predecessor's
+direct correction IDs. A retry resolves to the same immutable archive ID before
+sibling checks. Direct corrections with unknown validity are treated as
+overlapping; known half-open intervals may be siblings only when they do not
+overlap. A partial correction does not edit or close the predecessor interval.
+This stores correction evidence and rejects ambiguous direct siblings; it does
+not yet define full as-of resolution across correction generations.
 
 ## Dependency graph and bounded deliverables
 

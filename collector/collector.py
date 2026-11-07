@@ -335,6 +335,16 @@ class State:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS progress (url TEXT, source TEXT, thread TEXT, mode TEXT, size INTEGER, mtime INTEGER, offset INTEGER, digest TEXT, PRIMARY KEY(url,source,thread,mode))"
         )
+        columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(progress)")
+        }
+        if "receipt_coverage" not in columns:
+            self.db.execute(
+                "ALTER TABLE progress ADD COLUMN receipt_coverage TEXT NOT NULL DEFAULT 'unknown'"
+            )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS archive_receipt (url TEXT, source TEXT, thread TEXT, source_id TEXT, revision_id TEXT, archive_id TEXT, PRIMARY KEY(url,source,thread,source_id,revision_id))"
+        )
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS occurrence (url TEXT, source TEXT, thread TEXT, mode TEXT, timestamp TEXT, type TEXT, count INTEGER, PRIMARY KEY(url,source,thread,mode,timestamp,type))"
         )
@@ -362,6 +372,22 @@ class State:
         }
         return row + (counts,)
 
+    def receipt_coverage(self, url, source, thread, mode):
+        row = self.db.execute(
+            "SELECT receipt_coverage FROM progress WHERE url=? AND source=? AND thread=? AND mode=?",
+            (url, source, thread, mode),
+        ).fetchone()
+        return row[0] if row else "unknown"
+
+    def archive_receipts(self, url, source, thread):
+        return [
+            {"id": source_id, "revision_id": revision, "archive_id": archive}
+            for source_id, revision, archive in self.db.execute(
+                "SELECT source_id,revision_id,archive_id FROM archive_receipt WHERE url=? AND source=? AND thread=? ORDER BY source_id,revision_id",
+                (url, source, thread),
+            )
+        ]
+
     def set_progress(
         self,
         url,
@@ -375,8 +401,13 @@ class State:
         counts,
         dirty,
         reset=False,
+        receipts=(),
+        receipt_coverage="unknown",
     ):
         with self.db:
+            prior_coverage = self.receipt_coverage(url, source, thread, mode)
+            if not reset and prior_coverage == "unknown":
+                receipt_coverage = "unknown"
             if reset:
                 self.db.execute(
                     "DELETE FROM occurrence WHERE url=? AND source=? AND thread=? AND mode=?",
@@ -390,9 +421,43 @@ class State:
                 ],
             )
             self.db.execute(
-                "INSERT OR REPLACE INTO progress VALUES (?,?,?,?,?,?,?,?)",
-                (url, source, thread, mode, size, mtime, offset, digest),
+                "INSERT OR REPLACE INTO progress (url,source,thread,mode,size,mtime,offset,digest,receipt_coverage) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    url,
+                    source,
+                    thread,
+                    mode,
+                    size,
+                    mtime,
+                    offset,
+                    digest,
+                    receipt_coverage,
+                ),
             )
+            for receipt in receipts:
+                existing = self.db.execute(
+                    "SELECT archive_id FROM archive_receipt WHERE url=? AND source=? AND thread=? AND source_id=? AND revision_id=?",
+                    (
+                        url,
+                        source,
+                        thread,
+                        receipt["id"],
+                        receipt["revision_id"],
+                    ),
+                ).fetchone()
+                if existing and existing[0] != receipt["archive_id"]:
+                    raise ValueError("archive receipt identity changed")
+                self.db.execute(
+                    "INSERT OR IGNORE INTO archive_receipt VALUES (?,?,?,?,?,?)",
+                    (
+                        url,
+                        source,
+                        thread,
+                        receipt["id"],
+                        receipt["revision_id"],
+                        receipt["archive_id"],
+                    ),
+                )
 
     def add_gap(self, url, source, thread, start, end, reason):
         self.db.execute(
@@ -475,6 +540,15 @@ def _endpoint(url):
     )
 
 
+def _checkpoint_url(url, token):
+    endpoint = _endpoint(url)
+    if not token:
+        return url
+    # Token-scoped checkpoints replay legacy unscoped progress once, safely.
+    scope = hashlib.sha256(token.encode()).hexdigest()
+    return endpoint + "\n" + scope
+
+
 def _upload(url, token, payload):
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
     if len(data) > MAX_REQUEST:
@@ -504,15 +578,40 @@ def _upload(url, token, payload):
 def _ack(status, body, expected):
     if not 200 <= status < 300 or not isinstance(body, dict):
         raise RuntimeError("upload failed")
+    expected_records = expected if isinstance(expected, list) else None
+    expected_count = (
+        len(expected_records) if expected_records is not None else expected
+    )
     stored, duplicate = body.get("stored"), body.get("duplicate")
     if (
         type(stored) is not int
         or type(duplicate) is not int
         or stored < 0
         or duplicate < 0
-        or stored + duplicate != expected
+        or stored + duplicate != expected_count
     ):
         raise RuntimeError("upload acknowledgement invalid")
+    if "records" not in body:
+        return None
+    receipts = body["records"]
+    if (
+        expected_records is None
+        or not isinstance(receipts, list)
+        or len(receipts) != expected_count
+    ):
+        raise RuntimeError("upload acknowledgement invalid")
+    for receipt, record in zip(receipts, expected_records, strict=True):
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"id", "revision_id", "archive_id"}
+            or receipt["id"] != record["id"]
+            or not isinstance(receipt["revision_id"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", receipt["revision_id"])
+            or not isinstance(receipt["archive_id"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", receipt["archive_id"])
+        ):
+            raise RuntimeError("upload acknowledgement invalid")
+    return receipts
 
 
 def _token(path):
@@ -594,7 +693,7 @@ def collect(
     includes: Sequence[str | os.PathLike[str]] | None = None,
 ) -> dict[str, int]:
     """Sanitize and upload eligible session records with resumable state."""
-    _endpoint(url)
+    state_url = _checkpoint_url(url, token)
     if limit_threads is not None and (
         type(limit_threads) is not int or limit_threads <= 0
     ):
@@ -646,7 +745,7 @@ def collect(
                     stats["skipped_files"] += 1
                     if not dry_run:
                         state.add_gap(
-                            url,
+                            state_url,
                             source,
                             "",
                             0,
@@ -654,19 +753,23 @@ def collect(
                             "missing-valid-session-metadata",
                         )
                     continue
-                if state.deleted(url, thread):
+                if state.deleted(state_url, thread):
                     continue
                 if limit_threads is not None and stats["threads"] >= limit_threads:
                     break
                 stats["threads"] += 1
                 mode = "backfill" if rescan else "normal"
                 fh.seek(0)
-                saved = None if dry_run else state.progress(url, source, thread, mode)
+                saved = (
+                    None
+                    if dry_run
+                    else state.progress(state_url, source, thread, mode)
+                )
                 offset, hasher, counts = _resume(fh, saved, metadata.st_size)
                 if (
                     rescan
                     and offset == metadata.st_size
-                    and state.has_gaps(url, source, thread)
+                    and state.has_gaps(state_url, source, thread)
                 ):
                     fh.seek(0)
                     offset, hasher, counts = 0, hashlib.sha256(), {}
@@ -682,13 +785,20 @@ def collect(
                 complete_file = True
                 tombstoned = False
                 checkpoint_end = offset
+                batch_has_gaps = False
 
                 # Both closures run synchronously before the file-loop advances.
-                def save_progress(end, digest, saved_counts):
+                def save_progress(
+                    end,
+                    digest,
+                    saved_counts,
+                    receipts=(),
+                    receipt_coverage="unknown",
+                ):
                     nonlocal checkpoint_end, reset_counts
                     current = os.fstat(fh.fileno())
                     state.set_progress(
-                        url,
+                        state_url,
                         source,
                         thread,
                         mode,
@@ -699,13 +809,15 @@ def collect(
                         saved_counts,
                         dirty_counts,
                         reset_counts,
+                        receipts=receipts,
+                        receipt_coverage=receipt_coverage,
                     )
                     dirty_counts.clear()
                     reset_counts = False
                     checkpoint_end = end
 
                 def flush():
-                    nonlocal batch, tombstoned
+                    nonlocal batch, tombstoned, batch_has_gaps
                     if not batch:
                         return
                     if not dry_run:
@@ -713,14 +825,23 @@ def collect(
                             url, token, {"thread_id": thread, "records": batch}
                         )
                         if status == 410:
-                            state.mark_deleted(url, thread)
+                            state.mark_deleted(state_url, thread)
                             tombstoned = True
                             batch = []
                             return
-                        _ack(status, body, len(batch))
-                        save_progress(batch_end, batch_digest, counts)
+                        receipts = _ack(status, body, batch)
+                        save_progress(
+                            batch_end,
+                            batch_digest,
+                            counts,
+                            receipts or (),
+                            "complete"
+                            if receipts is not None and not batch_has_gaps
+                            else "unknown",
+                        )
                     stats["batches"] += 1
                     batch = []
+                    batch_has_gaps = False
 
                 for raw, complete, start, end in _bounded_lines(fh, hasher):
                     if not complete:
@@ -740,6 +861,7 @@ def collect(
                         elif item is not None:
                             reason = _record_error(item)
                     if reason:
+                        batch_has_gaps = True
                         if reason in {"nesting-depth", "non-finite-number"}:
                             ts, typ = _timestamp(item), _type(item)
                             if _valid_timestamp(ts):
@@ -749,7 +871,9 @@ def collect(
                         stats["gaps"] += 1
                         seen_gaps.append((start, end, reason))
                         if not dry_run:
-                            state.add_gap(url, source, thread, start, end, reason)
+                            state.add_gap(
+                                state_url, source, thread, start, end, reason
+                            )
                         last_end, last_digest = end, hasher.hexdigest()
                         if batch:
                             batch_end, batch_digest = last_end, last_digest
@@ -757,11 +881,14 @@ def collect(
 
                     ts, typ = _timestamp(item), _type(item)
                     if not _valid_timestamp(ts):
+                        batch_has_gaps = True
                         stats["gaps"] += 1
                         reason = "invalid-timestamp"
                         seen_gaps.append((start, end, reason))
                         if not dry_run:
-                            state.add_gap(url, source, thread, start, end, reason)
+                            state.add_gap(
+                                state_url, source, thread, start, end, reason
+                            )
                         last_end, last_digest = end, hasher.hexdigest()
                         if batch:
                             batch_end, batch_digest = last_end, last_digest
@@ -785,13 +912,16 @@ def collect(
                         )
                         > MAX_RECORD
                     ):
+                        batch_has_gaps = True
                         counts[(ts, typ)] = occurrence + 1
                         dirty_counts.add((ts, typ))
                         stats["gaps"] += 1
                         reason = "oversized-record"
                         seen_gaps.append((start, end, reason))
                         if not dry_run:
-                            state.add_gap(url, source, thread, start, end, reason)
+                            state.add_gap(
+                                state_url, source, thread, start, end, reason
+                            )
                         last_end, last_digest = end, hasher.hexdigest()
                         if batch:
                             batch_end, batch_digest = last_end, last_digest
@@ -823,13 +953,13 @@ def collect(
                 if not dry_run and not batch and last_end > checkpoint_end:
                     save_progress(last_end, last_digest, counts)
                 if not dry_run and full_pass and complete_file:
-                    state.replace_gaps(url, source, thread, seen_gaps)
-                    state.replace_gaps(url, source, "", [])
+                    state.replace_gaps(state_url, source, thread, seen_gaps)
+                    state.replace_gaps(state_url, source, "", [])
     finally:
         state.close()
     check = State(state_path)
     try:
-        stats["pending_gaps"] = check.pending_gaps(url)
+        stats["pending_gaps"] = check.pending_gaps(state_url)
     finally:
         check.close()
     return stats

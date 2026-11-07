@@ -13,6 +13,15 @@ modifies source files. A local SQLite checkpoint
 advances only after an upload is acknowledged or a skipped input is recorded
 as an explicit pending gap.
 
+The collector accepts the additive `records` acknowledgement mapping
+(`id`, `revision_id`, `archive_id`) and stores it with the matching checkpoint.
+Count-only acknowledgements from older servers remain valid, with receipt
+coverage recorded as `unknown`. Remote checkpoint, gap, occurrence and tombstone
+state is scoped by a hash of the ingest token. Token rotation and old unscoped
+remote checkpoints cause a safe replay; the token itself is not stored. Event
+IDs remain independent of the token. Use `--backfill` after upgrading a legacy
+server to fill unknown receipt mappings for previously checkpointed records.
+
 ```sh
 python3 collector.py collect --codex-home ~/.codex \
   --url https://collector.example --token-file ~/.config/codex/token \

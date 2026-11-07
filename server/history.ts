@@ -162,7 +162,11 @@ export function createHistory(
     async ingest(
       owner: string,
       input: unknown,
-    ): Promise<{ stored: number; duplicate: number }> {
+    ): Promise<{
+      stored: number;
+      duplicate: number;
+      records: { id: string; revision_id: string; archive_id: string }[];
+    }> {
       validate(owner, input);
       const records = prepareValidatedHistoryRecords(owner, input);
 
@@ -200,7 +204,15 @@ export function createHistory(
           );
           stored += result.rowCount ?? 0;
         }
-        return { stored, duplicate: records.length - stored };
+        return {
+          stored,
+          duplicate: records.length - stored,
+          records: records.map((record) => ({
+            id: record.item.id,
+            revision_id: record.revision,
+            archive_id: record.id,
+          })),
+        };
       });
     },
 

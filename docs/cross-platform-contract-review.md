@@ -1,6 +1,7 @@
 # Issue 9: source contract review
 
-Status: proposal for interface review; no production behavior changed.
+Status: partial implementation; the additive archive receipt mapping is in the
+ingest response, while source metadata and correction fields remain proposals.
 Baseline: `d28c67beb2d5c96c2bb7a7874cbb77b52ba78187`.
 Tracking: <https://github.com/djh00t/pachigraph/issues/9>.
 
@@ -55,12 +56,14 @@ Proposed `source` object has only optional `platform`, `conversation_id`,
 64 UTF-8 bytes, opaque IDs 1024 bytes each, total canonical metadata 8 KiB;
 reject unknown keys. `coverage` is `partial`, `unknown`, or `complete`, defaults
 to unknown, and complete requires producer-specific evidence. `corrects` names
-an immutable archive record ID, not mutable upstream text. To obtain it
-unambiguously, propose an additive ingest acknowledgement `records` array in input
-order containing each transport event `id`, `revision_id`, and `archive_id`, on
-both first ingest and duplicate replay. Keep `stored` and `duplicate` unchanged.
-Review this response extension explicitly; search by repeated text is not a safe
-identity lookup. Persist returned archive IDs before emitting correction links. Do not require speaker,
+an immutable archive record ID, not mutable upstream text. The additive ingest
+acknowledgement returns a `records` array in input order, with each transport
+event `id`, `revision_id`, and `archive_id`, on both first ingest and duplicate
+replay. It keeps `stored` and `duplicate` unchanged. The collector validates and
+persists returned archive IDs with its checkpoint; count-only legacy
+acknowledgements record receipt coverage as unknown. Search by repeated text is
+not a safe identity lookup. Persist returned archive IDs before emitting
+correction links. Do not require speaker,
 model, citation, source URI, call duration or original timestamps. Avoid arbitrary
 source URLs until their safety and consumer behavior are separately reviewed.
 

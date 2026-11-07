@@ -8,12 +8,122 @@ import sys
 import tempfile
 import threading
 import unittest
+from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import collector
+
+
+class FakeCursor:
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class FakeSQLite:
+    def __init__(self, receipt_coverage=True):
+        self.columns = {
+            "url",
+            "source",
+            "thread",
+            "mode",
+            "size",
+            "mtime",
+            "offset",
+            "digest",
+        }
+        if receipt_coverage:
+            self.columns.add("receipt_coverage")
+        self.progress = {}
+        self.occurrences = {}
+        self.receipts = {}
+        self.statements = []
+        self.events = []
+        self.operations = []
+        self.active = False
+        self.snapshot = None
+
+    def __enter__(self):
+        self.active = True
+        self.snapshot = deepcopy(
+            (self.progress, self.occurrences, self.receipts)
+        )
+        self.events.append("begin")
+        return self
+
+    def __exit__(self, error_type, _error, _traceback):
+        self.active = False
+        if error_type is not None:
+            self.progress, self.occurrences, self.receipts = self.snapshot
+            self.events.append("rollback")
+        else:
+            self.events.append("commit")
+        return False
+
+    def execute(self, statement, values=()):
+        sql = " ".join(statement.split())
+        values = tuple(values)
+        self.statements.append(sql)
+        if sql == "PRAGMA table_info(progress)":
+            return FakeCursor(
+                [(index, name) for index, name in enumerate(sorted(self.columns))]
+            )
+        if sql.startswith("ALTER TABLE progress ADD COLUMN receipt_coverage"):
+            self.columns.add("receipt_coverage")
+            return FakeCursor()
+        if sql.startswith("SELECT receipt_coverage FROM progress"):
+            row = self.progress.get(values)
+            return FakeCursor([(row["receipt_coverage"],)] if row else [])
+        if sql.startswith("INSERT OR REPLACE INTO progress"):
+            key = values[:4]
+            self.progress[key] = {
+                "size": values[4],
+                "mtime": values[5],
+                "offset": values[6],
+                "digest": values[7],
+                "receipt_coverage": values[8],
+            }
+            self.operations.append(("progress", self.active))
+            return FakeCursor()
+        if sql.startswith("SELECT archive_id FROM archive_receipt"):
+            archive_id = self.receipts.get(values)
+            return FakeCursor([(archive_id,)] if archive_id else [])
+        if sql.startswith("SELECT source_id,revision_id,archive_id FROM archive_receipt"):
+            rows = [
+                (source_id, revision_id, archive_id)
+                for (url, source, thread, source_id, revision_id), archive_id
+                in self.receipts.items()
+                if (url, source, thread) == values
+            ]
+            return FakeCursor(sorted(rows))
+        if sql.startswith("INSERT OR IGNORE INTO archive_receipt"):
+            self.receipts.setdefault(values[:5], values[5])
+            self.operations.append(("receipt", self.active))
+            return FakeCursor()
+        if sql.startswith("DELETE FROM occurrence"):
+            for key in list(self.occurrences):
+                if key[:4] == values:
+                    del self.occurrences[key]
+            return FakeCursor()
+        return FakeCursor()
+
+    def executemany(self, statement, rows):
+        sql = " ".join(statement.split())
+        self.statements.append(sql)
+        for values in rows:
+            self.occurrences[tuple(values[:6])] = values[6]
+        self.operations.append(("occurrence", self.active))
+
+    def commit(self):
+        self.events.append("commit")
 
 
 class CollectorTests(unittest.TestCase):
@@ -350,6 +460,185 @@ class CollectorTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_receipts_recover_after_lost_ack_and_scope_checkpoint_by_token(self):
+        self.write_session(
+            "sessions/a.jsonl",
+            [
+                {
+                    "type": "session_meta",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "payload": {"id": "019cbbc4-7fd4-7bca-9dc4-d63a3439189e"},
+                },
+                {
+                    "type": "user",
+                    "uuid": "native-event-1",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "payload": {"text": "synthetic message"},
+                },
+            ],
+        )
+        self.write_session("sessions/missing.jsonl", [{"type": "user"}])
+        thread_id = "019cbbc4-7fd4-7bca-9dc4-d63a3439189e"
+        memory = {
+            "progress": {},
+            "receipts": {},
+            "coverage": {},
+            "gaps": {},
+            "tombstones": set(),
+        }
+
+        class MemoryState:
+            def __init__(self, _path):
+                pass
+
+            def progress(self, url, source, thread, mode):
+                return memory["progress"].get((url, source, thread, mode))
+
+            def set_progress(
+                self,
+                url,
+                source,
+                thread,
+                mode,
+                size,
+                mtime,
+                offset,
+                digest,
+                counts,
+                dirty,
+                reset=False,
+                **kwargs,
+            ):
+                key = (url, source, thread, mode)
+                memory["progress"][key] = (size, mtime, offset, digest, dict(counts))
+                memory["coverage"][key] = kwargs.get(
+                    "receipt_coverage", "unknown"
+                )
+                memory["receipts"][key] = kwargs.get("receipts", [])
+
+            def deleted(self, _url, _thread):
+                return (_url, _thread) in memory["tombstones"]
+
+            def mark_deleted(self, url, thread):
+                memory["tombstones"].add((url, thread))
+
+            def add_gap(self, url, source, thread, start, end, reason):
+                memory["gaps"].setdefault((url, source, thread), []).append(
+                    (start, end, reason)
+                )
+
+            def has_gaps(self, *_args):
+                return any(key[0] == _args[0] for key in memory["gaps"])
+
+            def replace_gaps(self, url, source, thread, gaps):
+                key = (url, source, thread)
+                if gaps:
+                    memory["gaps"][key] = list(gaps)
+                else:
+                    memory["gaps"].pop(key, None)
+
+            def pending_gaps(self, url):
+                return sum(
+                    len(gaps)
+                    for key, gaps in memory["gaps"].items()
+                    if key[0] == url
+                )
+
+            def close(self):
+                pass
+
+        accepted = {"owner-a": set(), "owner-b": set()}
+        uploads = []
+
+        def upload(_url, token, payload):
+            identity = "owner-a" if token == "token-a" else "owner-b"
+            ids = [record["id"] for record in payload["records"]]
+            uploads.append((token, ids))
+            stored = sum(item not in accepted[identity] for item in ids)
+            duplicate = len(ids) - stored
+            accepted[identity].update(ids)
+            receipts = [
+                {
+                    "id": item,
+                    "revision_id": "a" * 64,
+                    "archive_id": (
+                        ("b" if index == 0 else "d")
+                        if identity == "owner-a"
+                        else ("c" if index == 0 else "e")
+                    )
+                    * 64,
+                }
+                for index, item in enumerate(ids)
+            ]
+            if token == "token-a" and len(uploads) == 1:
+                raise TimeoutError("accepted request response was lost")
+            response = {
+                "stored": stored,
+                "duplicate": duplicate,
+            }
+            if token == "token-a":
+                response["records"] = receipts
+            return 200, response
+
+        with (
+            mock.patch.object(collector, "State", MemoryState),
+            mock.patch.object(collector, "_scanner", return_value=[]),
+            mock.patch.object(collector, "_upload", side_effect=upload),
+        ):
+            with self.assertRaises(TimeoutError):
+                collector.collect(
+                    self.home, "https://archive.example", self.state, token="token-a"
+                )
+            self.assertEqual(memory["progress"], {})
+            collector.collect(
+                self.home, "https://archive.example", self.state, token="token-a"
+            )
+            scope_a = collector._checkpoint_url(
+                "https://archive.example", "token-a"
+            )
+            memory["tombstones"].add((scope_a, thread_id))
+            collector.collect(
+                self.home, "https://archive.example", self.state, token="token-a"
+            )
+            collector.collect(
+                self.home, "https://archive.example", self.state, token="token-b"
+            )
+
+        self.assertEqual(len(uploads), 3)
+        self.assertEqual(uploads[0][1], uploads[1][1])
+        self.assertEqual(uploads[1][1], uploads[2][1])
+        self.assertEqual(set(accepted["owner-a"]), set(accepted["owner-b"]))
+        self.assertEqual(len(memory["progress"]), 2)
+        self.assertEqual(sorted(memory["coverage"].values()), ["complete", "unknown"])
+        self.assertEqual(
+            {key[0] for key in memory["gaps"]},
+            {key[0] for key in memory["progress"]},
+        )
+        self.assertEqual(memory["tombstones"], {(scope_a, thread_id)})
+        self.assertEqual(
+            [record["archive_id"] for records in memory["receipts"].values() for record in records],
+            ["b" * 64, "d" * 64],
+        )
+        complete_key = next(
+            key for key, coverage in memory["coverage"].items() if coverage == "complete"
+        )
+        self.assertEqual(
+            memory["receipts"][complete_key],
+            [
+                {
+                    "id": uploads[1][1][0],
+                    "revision_id": "a" * 64,
+                    "archive_id": "b" * 64,
+                },
+                {
+                    "id": uploads[1][1][1],
+                    "revision_id": "a" * 64,
+                    "archive_id": "d" * 64,
+                },
+            ],
+        )
+        self.assertTrue(all("token-a" not in key[0] and "token-b" not in key[0] for key in memory["progress"]))
+
     def test_changed_prefix_is_rescanned_but_append_scans_only_tail(self):
         path = self.write_session(
             "sessions/a.jsonl",
@@ -442,6 +731,104 @@ class CollectorTests(unittest.TestCase):
         for body in ({"stored": True, "duplicate": 0}, {"stored": -1, "duplicate": 2}):
             with self.subTest(body=body), self.assertRaises(RuntimeError):
                 collector._ack(200, body, 1)
+
+    def test_ack_validates_ordered_archive_receipts_and_allows_legacy_counts(self):
+        record = {"id": "a" * 64}
+        receipt = {
+            "id": record["id"],
+            "revision_id": "b" * 64,
+            "archive_id": "c" * 64,
+        }
+        self.assertEqual(
+            collector._ack(
+                200,
+                {"stored": 1, "duplicate": 0, "records": [receipt]},
+                [record],
+            ),
+            [receipt],
+        )
+        self.assertIsNone(
+            collector._ack(200, {"stored": 0, "duplicate": 1}, [record])
+        )
+        for invalid in (
+            {**receipt, "id": "d" * 64},
+            {**receipt, "revision_id": "not-a-digest"},
+            {**receipt, "archive_id": "e" * 64, "extra": "field"},
+        ):
+            with self.subTest(receipt=invalid), self.assertRaises(RuntimeError):
+                collector._ack(
+                    200,
+                    {"stored": 1, "duplicate": 0, "records": [invalid]},
+                    [record],
+                )
+
+    def test_state_writes_receipt_and_checkpoint_atomically_and_rolls_back_conflicts(self):
+        db = FakeSQLite()
+        state = collector.State.__new__(collector.State)
+        state.db = db
+        receipt = {
+            "id": "a" * 64,
+            "revision_id": "b" * 64,
+            "archive_id": "c" * 64,
+        }
+
+        state.set_progress(
+            "scoped-url",
+            "source",
+            "thread",
+            "normal",
+            10,
+            20,
+            10,
+            "d" * 64,
+            {},
+            set(),
+            reset=True,
+            receipts=[receipt],
+            receipt_coverage="complete",
+        )
+
+        key = ("scoped-url", "source", "thread", "normal")
+        self.assertEqual(db.events, ["begin", "commit"])
+        self.assertEqual(
+            db.operations,
+            [("occurrence", True), ("progress", True), ("receipt", True)],
+        )
+        self.assertEqual(db.progress[key]["receipt_coverage"], "complete")
+        self.assertEqual(state.archive_receipts(*key[:3]), [receipt])
+        self.assertEqual(state.receipt_coverage(*key), "complete")
+
+        with self.assertRaisesRegex(ValueError, "archive receipt identity changed"):
+            state.set_progress(
+                "scoped-url",
+                "source",
+                "thread",
+                "normal",
+                11,
+                21,
+                11,
+                "e" * 64,
+                {},
+                set(),
+                receipts=[{**receipt, "archive_id": "f" * 64}],
+                receipt_coverage="complete",
+            )
+        self.assertEqual(db.events, ["begin", "commit", "begin", "rollback"])
+        self.assertEqual(db.progress[key]["offset"], 10)
+        self.assertEqual(state.archive_receipts(*key[:3]), [receipt])
+
+    def test_old_checkpoint_schema_adds_explicit_unknown_receipt_coverage(self):
+        db = FakeSQLite(receipt_coverage=False)
+        with (
+            mock.patch.object(collector.sqlite3, "connect", return_value=db),
+            mock.patch.object(collector.os, "chmod"),
+        ):
+            collector.State(self.state)
+        self.assertIn("receipt_coverage", db.columns)
+        self.assertIn(
+            "ALTER TABLE progress ADD COLUMN receipt_coverage TEXT NOT NULL DEFAULT 'unknown'",
+            db.statements,
+        )
 
     def test_limit_threads_must_be_positive(self):
         with self.assertRaises(ValueError):

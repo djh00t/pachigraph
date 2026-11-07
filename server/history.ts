@@ -14,6 +14,7 @@ export type InputRecord = {
   text: string;
   record: Record<string, unknown>;
   valid_time?: { from: string | null; to: string | null };
+  corrects_id?: string;
 };
 
 export type IngestInput = { thread_id: string; records: InputRecord[] };
@@ -160,7 +161,9 @@ function validate(owner: string, input: unknown): asserts input is IngestInput {
       throw new HistoryError(400, 'record must be an object');
     }
     const validTime = normalizeValidTime(item);
-    const serialized = `{"id":${JSON.stringify(item.id)},"record":${canonical(item.record)},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}${validTime.status === 'known' ? `,"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}` : ''}}`;
+    if (item.corrects_id !== undefined && !SHA256.test(item.corrects_id))
+      throw new HistoryError(400, 'corrects_id must be an archive id');
+    const serialized = `{"id":${JSON.stringify(item.id)},"record":${canonical(item.record)},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}${validTime.status === 'known' ? `,"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}` : ''}${item.corrects_id === undefined ? '' : `,"corrects_id":${JSON.stringify(item.corrects_id)}`}}`;
     if (Buffer.byteLength(serialized) > 384 * 1024) {
       throw new HistoryError(413, 'record exceeds 384 KiB');
     }
@@ -173,10 +176,16 @@ function prepareValidatedHistoryRecords(owner: string, input: IngestInput) {
     const record = canonical(item.record);
     const validTime = normalizeValidTime(item);
     const legacyRevision = `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`;
+    const revisionBody =
+      validTime.status === 'known'
+        ? `${legacyRevision.slice(0, -1)},"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}}`
+        : legacyRevision;
+    const revisionWithCorrection =
+      item.corrects_id === undefined
+        ? revisionBody
+        : `${revisionBody.slice(0, -1)},"corrects_id":${JSON.stringify(item.corrects_id)}}`;
     const revision = digest(
-      validTime.status === 'unknown'
-        ? legacyRevision
-        : `${legacyRevision.slice(0, -1)},"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}}`,
+      revisionWithCorrection,
     );
     return {
       item,
@@ -185,6 +194,7 @@ function prepareValidatedHistoryRecords(owner: string, input: IngestInput) {
       validTimeStatus: validTime.status,
       validFrom: validTime.from,
       validTo: validTime.to,
+      correctsId: item.corrects_id,
       id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
       key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
     };
@@ -258,13 +268,72 @@ export function createHistory(
 
         let stored = 0;
         for (const record of records) {
+          const existing = await client.query(
+            `SELECT 1 AS present FROM pachigraph.history_records
+             WHERE owner_id = $1 AND thread_id = $2 AND source_id = $3 AND revision_id = $4`,
+            [owner, input.thread_id, record.item.id, record.revision],
+          );
+          if (existing.rowCount) continue;
+
+          if (record.correctsId !== undefined) {
+            if (record.correctsId === record.id)
+              throw new HistoryError(400, 'a record cannot correct itself');
+            const predecessor = await client.query(
+              `SELECT id FROM pachigraph.history_records
+               WHERE owner_id = $1 AND thread_id = $2 AND id = $3`,
+              [owner, input.thread_id, record.correctsId],
+            );
+            if (!predecessor.rowCount)
+              throw new HistoryError(404, 'correction predecessor not found');
+
+            const cycle = await client.query(
+              `WITH RECURSIVE correction_ancestors(id, corrects_id) AS (
+                 SELECT id, corrects_id FROM pachigraph.history_records
+                 WHERE owner_id = $1 AND thread_id = $2 AND id = $3
+                 UNION
+                 SELECT parent.id, parent.corrects_id
+                 FROM pachigraph.history_records parent
+                 JOIN correction_ancestors child ON parent.id = child.corrects_id
+                 WHERE parent.owner_id = $1 AND parent.thread_id = $2
+               )
+               SELECT 1 FROM correction_ancestors WHERE id = $4 LIMIT 1`,
+              [owner, input.thread_id, record.correctsId, record.id],
+            );
+            if (cycle.rowCount)
+              throw new HistoryError(400, 'correction would create a cycle');
+
+            const overlap = await client.query(
+              `SELECT 1 FROM pachigraph.history_records sibling
+               WHERE sibling.owner_id = $1 AND sibling.thread_id = $2
+                 AND sibling.corrects_id = $3
+                 AND (
+                   $4 = 'unknown' OR sibling.valid_time_status = 'unknown'
+                   OR (
+                     (sibling.valid_from IS NULL OR $6::timestamptz IS NULL OR sibling.valid_from < $6::timestamptz)
+                     AND ($5::timestamptz IS NULL OR sibling.valid_to IS NULL OR $5::timestamptz < sibling.valid_to)
+                   )
+                 )
+               LIMIT 1`,
+              [
+                owner,
+                input.thread_id,
+                record.correctsId,
+                record.validTimeStatus,
+                record.validFrom,
+                record.validTo,
+              ],
+            );
+            if (overlap.rowCount)
+              throw new HistoryError(409, 'overlapping direct corrections are ambiguous');
+          }
+
           await objects.putImmutable(record.key, record.record);
           const result = await client.query(
             `INSERT INTO pachigraph.history_records
                (owner_id, thread_id, source_id, revision_id, id,
                 source_timestamp, source_text, text_bytes, object_key, ingested_at,
-                valid_time_status, valid_from, valid_to, recorded_from, recorded_to)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $10::timestamptz, NULL)
+                valid_time_status, valid_from, valid_to, recorded_from, recorded_to, corrects_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $10::timestamptz, NULL, $14)
              ON CONFLICT (owner_id, thread_id, source_id, revision_id) DO NOTHING`,
             [
               owner,
@@ -280,6 +349,7 @@ export function createHistory(
               record.validTimeStatus,
               record.validFrom,
               record.validTo,
+              record.correctsId ?? null,
             ],
           );
           stored += result.rowCount ?? 0;
@@ -310,13 +380,22 @@ export function createHistory(
         valid_to: string | null;
         recorded_from: string;
         recorded_to: string | null;
+        corrects_id: string | null;
+        corrected_by_ids: string[];
       }>(
         `SELECT id, revision_id, thread_id, source_id, source_timestamp, source_text, object_key,
                 valid_time_status,
                 to_char(valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from,
                 to_char(valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to,
                 to_char(recorded_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_from,
-                to_char(recorded_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_to
+                to_char(recorded_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_to,
+                corrects_id,
+                ARRAY(
+                  SELECT child.id FROM pachigraph.history_records child
+                  WHERE child.owner_id = r.owner_id AND child.thread_id = r.thread_id
+                    AND child.corrects_id = r.id
+                  ORDER BY child.id
+                ) AS corrected_by_ids
          FROM pachigraph.history_records r
          WHERE owner_id = $1 AND id = $2
            AND NOT EXISTS (
@@ -338,6 +417,8 @@ export function createHistory(
         valid_to: row.valid_to,
         recorded_from: row.recorded_from,
         recorded_to: row.recorded_to,
+        corrects_id: row.corrects_id,
+        corrected_by_ids: row.corrected_by_ids,
         thread_id: row.thread_id,
         timestamp: row.source_timestamp,
         text: row.source_text,

@@ -50,18 +50,41 @@ type HistoryRow = {
   valid_to: string | null;
   recorded_from: string;
   recorded_to: string | null;
+  corrects_id: string | null;
 };
 
 class MemoryPool {
   readonly rows = new Map<string, HistoryRow>();
   readonly tombstones = new Set<string>();
   failNextQuery = false;
+  private lockTail = Promise.resolve();
+
+  private async acquireThreadLock() {
+    const previous = this.lockTail;
+    let release: () => void = () => {};
+    this.lockTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    return release;
+  }
 
   async connect() {
+    let releaseLock: (() => void) | undefined;
     return {
-      query: async (statement: string, values: unknown[] = []) =>
-        this.execute(statement, values),
-      release: () => undefined,
+      query: async (statement: string, values: unknown[] = []) => {
+        if (statement.includes('pg_advisory_xact_lock')) {
+          releaseLock = await this.acquireThreadLock();
+          return { rows: [], rowCount: 0 };
+        }
+        const result = await this.execute(statement, values);
+        if (/^(COMMIT|ROLLBACK)$/u.test(statement)) {
+          releaseLock?.();
+          releaseLock = undefined;
+        }
+        return result;
+      },
+      release: () => releaseLock?.(),
     };
   }
 
@@ -80,7 +103,20 @@ class MemoryPool {
         candidate.id === id &&
         !this.tombstones.has(`${ownerId}\0${candidate.thread_id}`),
     );
-    return { rows: row ? [row as T] : [], rowCount: row ? 1 : 0 };
+    const projected = row
+      ? {
+          ...row,
+          corrected_by_ids: [...this.rows.values()]
+            .filter((child) =>
+              child.owner_id === row.owner_id &&
+              child.thread_id === row.thread_id &&
+              child.corrects_id === row.id,
+            )
+            .map((child) => child.id)
+            .sort(),
+        }
+      : null;
+    return { rows: projected ? [projected as T] : [], rowCount: row ? 1 : 0 };
   }
 
   private async execute(statement: string, values: unknown[]) {
@@ -95,6 +131,65 @@ class MemoryPool {
         rowCount: Number(this.tombstones.has(key)),
       };
     }
+    if (statement.includes('SELECT 1 AS present FROM pachigraph.history_records')) {
+      const [ownerId, threadId, sourceId, revisionId] = values.map(String);
+      const exists = [...this.rows.values()].some(
+        (row) => row.owner_id === ownerId && row.thread_id === threadId &&
+          row.source_id === sourceId && row.revision_id === revisionId,
+      );
+      return { rows: exists ? [{}] : [], rowCount: Number(exists) };
+    }
+    if (statement.includes('SELECT id FROM pachigraph.history_records')) {
+      const [ownerId, threadId, id] = values.map(String);
+      const row = [...this.rows.values()].find(
+        (candidate) => candidate.owner_id === ownerId &&
+          candidate.thread_id === threadId && candidate.id === id,
+      );
+      return { rows: row ? [{ id: row.id }] : [], rowCount: Number(Boolean(row)) };
+    }
+    if (statement.includes('WITH RECURSIVE correction_ancestors')) {
+      const ownerId = String(values[0]);
+      const threadId = String(values[1]);
+      const predecessorId = String(values[2]);
+      const candidateId = String(values[3]);
+      let current = [...this.rows.values()].find(
+        (row) => row.owner_id === ownerId && row.thread_id === threadId && row.id === predecessorId,
+      );
+      const visited = new Set<string>();
+      let cycle = false;
+      while (current && !visited.has(current.id)) {
+        if (current.id === candidateId) cycle = true;
+        visited.add(current.id);
+        current = current.corrects_id
+          ? [...this.rows.values()].find((row) => row.owner_id === ownerId &&
+            row.thread_id === threadId && row.id === current!.corrects_id)
+          : undefined;
+      }
+      return { rows: cycle ? [{}] : [], rowCount: Number(cycle) };
+    }
+    if (statement.includes('FROM pachigraph.history_records sibling')) {
+      const [ownerId, threadId, predecessorId, validStatus, validFrom, validTo] = values;
+      const overlaps = [...this.rows.values()].some((row) => {
+        if (row.owner_id !== ownerId || row.thread_id !== threadId || row.corrects_id !== predecessorId)
+          return false;
+        if (validStatus === 'unknown' || row.valid_time_status === 'unknown') return true;
+        return (row.valid_from === null || validTo === null || row.valid_from < String(validTo)) &&
+          (validFrom === null || row.valid_to === null || String(validFrom) < row.valid_to);
+      });
+      return { rows: overlaps ? [{}] : [], rowCount: Number(overlaps) };
+    }
+    if (statement.includes('INSERT INTO pachigraph.thread_tombstones')) {
+      this.tombstones.add(`${String(values[0])}\0${String(values[1])}`);
+      return { rows: [], rowCount: 1 };
+    }
+    if (statement.includes('DELETE FROM pachigraph.history_records')) {
+      const [ownerId, threadId] = values.map(String);
+      for (const [key, row] of this.rows) {
+        if (row.owner_id === ownerId && row.thread_id === threadId)
+          this.rows.delete(key);
+      }
+      return { rows: [], rowCount: 0 };
+    }
     if (statement.includes('INSERT INTO pachigraph.history_records')) {
       const ownerId = String(values[0]);
       const threadId = String(values[1]);
@@ -108,6 +203,7 @@ class MemoryPool {
       const validStatus = String(values[10]) as 'unknown' | 'known';
       const validFrom = values[11] === null ? null : String(values[11]);
       const validTo = values[12] === null ? null : String(values[12]);
+      const correctsId = values[13] === null ? null : String(values[13]);
       const unique = `${ownerId}\0${threadId}\0${sourceId}\0${revisionId}`;
       if (this.rows.has(unique)) return { rows: [], rowCount: 0 };
       this.rows.set(unique, {
@@ -125,6 +221,7 @@ class MemoryPool {
         valid_to: validTo,
         recorded_from: recordedFrom,
         recorded_to: null,
+        corrects_id: correctsId,
       });
       return { rows: [], rowCount: 1 };
     }
@@ -255,6 +352,14 @@ test('bitemporal ingest preserves legacy identity and distinguishes known open v
   assert.equal(roundTrip.valid_from, null);
   assert.equal(roundTrip.valid_to, '2031-01-01T00:00:00.000000Z');
   assert.equal(roundTrip.recorded_to, null);
+  const linkedKnownInput = {
+    ...knownInput,
+    records: [{ ...knownInput.records[0]!, corrects_id: 'a'.repeat(64) }],
+  };
+  assert.notEqual(
+    prepareHistoryRecords(owner, linkedKnownInput)[0]?.revision,
+    known?.revision,
+  );
 });
 
 test('bitemporal ingest rejects empty or reversed known intervals before writes', async () => {
@@ -277,6 +382,20 @@ test('bitemporal ingest rejects empty or reversed known intervals before writes'
     assert.equal(pool.rows.size, 0);
     assert.equal(objects.objects.size, 0);
   }
+});
+
+test('correction metadata rejects malformed archive IDs before writes', async () => {
+  const { pool, objects, history } = setup();
+  const original = fixture.records[0]!;
+  await assert.rejects(
+    history.ingest(owner, {
+      ...fixture,
+      records: [{ ...original, corrects_id: 'not-an-archive-id' }],
+    }),
+    { status: 400 },
+  );
+  assert.equal(pool.rows.size, 0);
+  assert.equal(objects.objects.size, 0);
 });
 
 test('bitemporal interval identity normalizes offsets and migration preserves unknown history', async () => {
@@ -306,6 +425,203 @@ test('bitemporal interval identity normalizes offsets and migration preserves un
   assert.match(migration, /recorded_from TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP/u);
   assert.match(migration, /valid_time_status TEXT NOT NULL DEFAULT 'unknown'/u);
   assert.doesNotMatch(migration, /valid_from\s*=\s*source_timestamp/u);
+  const correctionsMigration = readFileSync(
+    new URL('../db/migrations/0003_history_corrections.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(correctionsMigration, /corrects_id <> id/u);
+  assert.match(correctionsMigration, /FOREIGN KEY \(owner_id, thread_id, corrects_id\)/u);
+});
+
+function correctionInput(
+  sourceId: string,
+  correctsId: string,
+  from: string | null,
+  to: string | null,
+  threadId = fixture.thread_id,
+) {
+  const original = fixture.records[0]!;
+  return {
+    thread_id: threadId,
+    records: [{
+      ...original,
+      id: sourceId,
+      text: `correction ${sourceId[0]}`,
+      record: { ...original.record, event_id: sourceId, correction: true },
+      valid_time: { from, to },
+      corrects_id: correctsId,
+    }],
+  };
+}
+
+test('correction ingest is immutable, retryable, and fetches both relation directions', async () => {
+  const { history } = setup();
+  const original = fixture.records[0]!;
+  const predecessorInput = {
+    ...fixture,
+    records: [{
+      ...original,
+      valid_time: {
+        from: '2031-01-01T00:00:00Z',
+        to: '2031-02-01T00:00:00Z',
+      },
+    }],
+  };
+  const predecessor = prepareHistoryRecords(owner, predecessorInput)[0]!;
+  await history.ingest(owner, predecessorInput);
+
+  const correction = correctionInput(
+    'b'.repeat(64),
+    predecessor.id,
+    '2031-01-10T00:00:00Z',
+    '2031-01-20T00:00:00Z',
+  );
+  const expectedCorrection = prepareHistoryRecords(owner, correction)[0]!;
+  assert.equal((await history.ingest(owner, correction)).stored, 1);
+  assert.equal((await history.ingest(owner, correction)).duplicate, 1);
+
+  const fetchedPredecessor = await history.fetch(owner, predecessor.id);
+  const fetchedCorrection = await history.fetch(owner, expectedCorrection.id);
+  assert.deepEqual(fetchedPredecessor.corrected_by_ids, [expectedCorrection.id]);
+  assert.equal(fetchedPredecessor.valid_from, '2031-01-01T00:00:00.000000Z');
+  assert.equal(fetchedPredecessor.valid_to, '2031-02-01T00:00:00.000000Z');
+  assert.equal(fetchedCorrection.corrects_id, predecessor.id);
+  assert.deepEqual(fetchedCorrection.record, correction.records[0]?.record);
+  const response = await handleAPI(
+    new Request(`https://history.example/api/fetch?id=${predecessor.id}`),
+    owner,
+    history,
+  );
+  assert.deepEqual(
+    (await response.json() as { corrected_by_ids: string[] }).corrected_by_ids,
+    [expectedCorrection.id],
+  );
+});
+
+test('corrections reject wrong scope and overlapping direct replacement periods', async () => {
+  const { objects, history } = setup();
+  const original = fixture.records[0]!;
+  const predecessorInput = {
+    ...fixture,
+    records: [{ ...original, valid_time: { from: null, to: null } }],
+  };
+  const predecessor = prepareHistoryRecords(owner, predecessorInput)[0]!;
+  await history.ingest(owner, predecessorInput);
+
+  const wrongOwnerPredecessor = prepareHistoryRecords('other-owner', predecessorInput)[0]!;
+  await history.ingest('other-owner', predecessorInput);
+  await assert.rejects(
+    history.ingest(owner, correctionInput(
+      'b'.repeat(64), wrongOwnerPredecessor.id, '2031-01-01T00:00:00Z', '2031-01-02T00:00:00Z',
+    )),
+    { status: 404 },
+  );
+
+  const otherThread = '018f47a8-4af3-7b83-bf0e-6f2b4e955c13';
+  const wrongThreadInput = { ...predecessorInput, thread_id: otherThread };
+  const wrongThreadPredecessor = prepareHistoryRecords(owner, wrongThreadInput)[0]!;
+  await history.ingest(owner, wrongThreadInput);
+  await assert.rejects(
+    history.ingest(owner, correctionInput(
+      'a'.repeat(64), wrongThreadPredecessor.id, '2031-01-01T00:00:00Z', '2031-01-02T00:00:00Z',
+    )),
+    { status: 404 },
+  );
+
+  const ownerBCorrection = correctionInput(
+    'e'.repeat(64), wrongOwnerPredecessor.id,
+    '2031-01-01T00:00:00Z', '2031-01-02T00:00:00Z',
+  );
+  await history.ingest('other-owner', ownerBCorrection);
+  assert.deepEqual((await history.fetch(owner, predecessor.id)).corrected_by_ids, []);
+  assert.equal((await history.fetch('other-owner', wrongOwnerPredecessor.id)).corrected_by_ids.length, 1);
+
+  const first = correctionInput(
+    'c'.repeat(64), predecessor.id, '2031-01-01T00:00:00Z', '2031-01-10T00:00:00Z',
+  );
+  await history.ingest(owner, first);
+  await assert.rejects(
+    history.ingest(owner, correctionInput(
+      'd'.repeat(64), predecessor.id, '2031-01-09T00:00:00Z', '2031-01-20T00:00:00Z',
+    )),
+    { status: 409 },
+  );
+  assert.ok(objects.objects.size > 0);
+});
+
+test('correction ingest rejects a predecessor chain that would create a cycle', async () => {
+  const { pool, history } = setup();
+  const original = fixture.records[0]!;
+  const predecessorInput = {
+    ...fixture,
+    records: [{ ...original, valid_time: { from: null, to: null } }],
+  };
+  const predecessor = prepareHistoryRecords(owner, predecessorInput)[0]!;
+  await history.ingest(owner, predecessorInput);
+  const candidate = correctionInput(
+    'b'.repeat(64), predecessor.id, '2031-01-01T00:00:00Z', '2031-01-02T00:00:00Z',
+  );
+  const candidateRecord = prepareHistoryRecords(owner, candidate)[0]!;
+  const predecessorRow = [...pool.rows.values()].find((row) => row.id === predecessor.id)!;
+  predecessorRow.corrects_id = candidateRecord.id;
+  pool.rows.set(`${owner}\0${fixture.thread_id}\0seed\0${'f'.repeat(64)}`, {
+    ...predecessorRow,
+    source_id: 'f'.repeat(64),
+    revision_id: 'f'.repeat(64),
+    id: candidateRecord.id,
+    corrects_id: predecessor.id,
+  });
+  await assert.rejects(history.ingest(owner, candidate), { status: 400 });
+});
+
+test('serialized correction writes reject a concurrent overlapping sibling', async () => {
+  const { pool, history } = setup();
+  const original = fixture.records[0]!;
+  const predecessorInput = {
+    ...fixture,
+    records: [{ ...original, valid_time: { from: null, to: null } }],
+  };
+  const predecessor = prepareHistoryRecords(owner, predecessorInput)[0]!;
+  await history.ingest(owner, predecessorInput);
+  const first = correctionInput(
+    'c'.repeat(64), predecessor.id, '2031-01-01T00:00:00Z', '2031-01-10T00:00:00Z',
+  );
+  const second = correctionInput(
+    'd'.repeat(64), predecessor.id, '2031-01-05T00:00:00Z', '2031-01-15T00:00:00Z',
+  );
+  const outcomes = await Promise.allSettled([
+    history.ingest(owner, first),
+    history.ingest(owner, second),
+  ]);
+  assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1);
+  const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
+  assert.equal((rejected as PromiseRejectedResult).reason.status, 409);
+  assert.equal(pool.rows.size, 2);
+});
+
+test('disjoint correction periods are allowed and thread deletion removes correction links', async () => {
+  const { pool, objects, history } = setup();
+  const original = fixture.records[0]!;
+  const predecessorInput = {
+    ...fixture,
+    records: [{ ...original, valid_time: { from: null, to: null } }],
+  };
+  const predecessor = prepareHistoryRecords(owner, predecessorInput)[0]!;
+  await history.ingest(owner, predecessorInput);
+  const first = correctionInput(
+    'c'.repeat(64), predecessor.id, '2031-01-01T00:00:00Z', '2031-01-10T00:00:00Z',
+  );
+  const second = correctionInput(
+    'd'.repeat(64), predecessor.id, '2031-01-10T00:00:00Z', '2031-01-20T00:00:00Z',
+  );
+  await history.ingest(owner, first);
+  await history.ingest(owner, second);
+
+  assert.equal((await history.fetch(owner, predecessor.id)).corrected_by_ids.length, 2);
+  await history.deleteThread(owner, fixture.thread_id);
+  assert.equal(pool.rows.size, 0);
+  assert.equal(objects.objects.size, 0);
+  await assert.rejects(history.fetch(owner, predecessor.id), { status: 404 });
 });
 
 test('exact fetch reports an indexed record with a missing object as unavailable', async () => {

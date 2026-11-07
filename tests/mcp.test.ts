@@ -31,6 +31,7 @@ const history = {
     calls.push(['fetch', owner, id]);
     return evidence;
   },
+  asOf: async () => ({ status: 'not_known' }),
   ingest: async () => ({}),
   deleteThread: async () => ({}),
   status: async (owner: string) => {

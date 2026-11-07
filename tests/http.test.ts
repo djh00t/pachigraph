@@ -11,6 +11,15 @@ const history = {
   fetch: async () => {
     throw Object.assign(new Error('private database detail'), { status: 404 });
   },
+  asOf: async (
+    owner: string,
+    rootId: string,
+    validAt: unknown,
+    recordedAt: unknown,
+  ) => {
+    calls.push(['as-of', owner, rootId, validAt, recordedAt]);
+    return { status: 'outside_validity' };
+  },
   ingest: async (owner: string, body: unknown) => {
     calls.push([owner, body]);
     return { stored: 1, duplicate: 0 };
@@ -32,6 +41,7 @@ test('all endpoints reject missing trusted identity before accessing storage', a
   for (const path of [
     '/api/search?q=test',
     '/api/fetch?id=abc',
+    '/api/as-of?root_id=abc',
     '/api/status',
     '/api/ingest',
     '/api/thread?id=abc',
@@ -41,6 +51,23 @@ test('all endpoints reject missing trusted identity before accessing storage', a
     assert.equal(response.headers.get('cache-control'), 'no-store');
   }
   assert.equal(calls.length, 0);
+});
+test('as-of route uses the authenticated owner and both explicit clock points', async () => {
+  const response = await handleAPI(
+    request(
+      '/api/as-of?root_id=root&valid_at=2031-01-01T00%3A00%3A00Z&recorded_at=2031-02-01T00%3A00%3A00Z&owner=victim',
+    ),
+    'reader',
+    history,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls.at(-1), [
+    'as-of',
+    'reader',
+    'root',
+    '2031-01-01T00:00:00Z',
+    '2031-02-01T00:00:00Z',
+  ]);
 });
 test('search always uses authenticated owner, ignoring attacker owner parameter', async () => {
   const response = await handleAPI(

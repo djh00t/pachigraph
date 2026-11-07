@@ -13,6 +13,7 @@ export type InputRecord = {
   timestamp: string;
   text: string;
   record: Record<string, unknown>;
+  valid_time?: { from: string | null; to: string | null };
 };
 
 export type IngestInput = { thread_id: string; records: InputRecord[] };
@@ -55,6 +56,73 @@ function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function normalizeValidEndpoint(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') {
+    throw new HistoryError(
+      400,
+      'valid_time endpoints must be ISO timestamps with at most microsecond precision',
+    );
+  }
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:Z|[+-]\d{2}:\d{2})$/u,
+  );
+  if (!match)
+    throw new HistoryError(
+      400,
+      'valid_time endpoints must be ISO timestamps with at most microsecond precision',
+    );
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth =
+    [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][
+      month - 1
+    ] ?? 0;
+  if (
+    year < 1 ||
+    day < 1 ||
+    day > daysInMonth ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    throw new HistoryError(400, 'valid_time endpoint is not a real timestamp');
+  }
+  const fraction = match[7] ?? '';
+  const millisFraction = fraction.slice(0, 3).padEnd(3, '0');
+  const parseValue = fraction
+    ? value.replace(`.${fraction}`, `.${millisFraction}`)
+    : value.replace(/(?=Z|[+-]\d{2}:\d{2}$)/u, '.000');
+  const milliseconds = Date.parse(parseValue);
+  if (Number.isNaN(milliseconds))
+    throw new HistoryError(400, 'valid_time endpoint is not a real timestamp');
+  const utc = new Date(milliseconds).toISOString();
+  return `${utc.slice(0, -1)}${fraction.slice(3).padEnd(3, '0')}Z`;
+}
+
+function normalizeValidTime(item: Partial<InputRecord>) {
+  if (item.valid_time === undefined)
+    return { status: 'unknown' as const, from: null, to: null };
+  if (
+    !item.valid_time ||
+    typeof item.valid_time !== 'object' ||
+    Array.isArray(item.valid_time) ||
+    Object.keys(item.valid_time).sort().join(',') !== 'from,to'
+  ) {
+    throw new HistoryError(400, 'valid_time must contain only from and to');
+  }
+  const from = normalizeValidEndpoint(item.valid_time.from);
+  const to = normalizeValidEndpoint(item.valid_time.to);
+  if (from !== null && to !== null && from >= to)
+    throw new HistoryError(400, 'valid_time must have a non-empty interval');
+  return { status: 'known' as const, from, to };
+}
+
 function validate(owner: string, input: unknown): asserts input is IngestInput {
   if (!owner) throw new HistoryError(400, 'owner is required');
   if (!input || typeof input !== 'object')
@@ -91,7 +159,8 @@ function validate(owner: string, input: unknown): asserts input is IngestInput {
     ) {
       throw new HistoryError(400, 'record must be an object');
     }
-    const serialized = `{"id":${JSON.stringify(item.id)},"record":${canonical(item.record)},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`;
+    const validTime = normalizeValidTime(item);
+    const serialized = `{"id":${JSON.stringify(item.id)},"record":${canonical(item.record)},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}${validTime.status === 'known' ? `,"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}` : ''}}`;
     if (Buffer.byteLength(serialized) > 384 * 1024) {
       throw new HistoryError(413, 'record exceeds 384 KiB');
     }
@@ -102,13 +171,20 @@ function prepareValidatedHistoryRecords(owner: string, input: IngestInput) {
   const ownerHash = digest(owner);
   return input.records.map((item) => {
     const record = canonical(item.record);
+    const validTime = normalizeValidTime(item);
+    const legacyRevision = `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`;
     const revision = digest(
-      `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`,
+      validTime.status === 'unknown'
+        ? legacyRevision
+        : `${legacyRevision.slice(0, -1)},"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}}`,
     );
     return {
       item,
       record,
       revision,
+      validTimeStatus: validTime.status,
+      validFrom: validTime.from,
+      validTo: validTime.to,
       id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
       key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
     };
@@ -186,8 +262,9 @@ export function createHistory(
           const result = await client.query(
             `INSERT INTO pachigraph.history_records
                (owner_id, thread_id, source_id, revision_id, id,
-                source_timestamp, source_text, text_bytes, object_key, ingested_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                source_timestamp, source_text, text_bytes, object_key, ingested_at,
+                valid_time_status, valid_from, valid_to, recorded_from, recorded_to)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $10::timestamptz, NULL)
              ON CONFLICT (owner_id, thread_id, source_id, revision_id) DO NOTHING`,
             [
               owner,
@@ -200,6 +277,9 @@ export function createHistory(
               Buffer.byteLength(record.item.text),
               record.key,
               new Date().toISOString(),
+              record.validTimeStatus,
+              record.validFrom,
+              record.validTo,
             ],
           );
           stored += result.rowCount ?? 0;
@@ -225,8 +305,18 @@ export function createHistory(
         source_timestamp: string;
         source_text: string;
         object_key: string;
+        valid_time_status: 'unknown' | 'known';
+        valid_from: string | null;
+        valid_to: string | null;
+        recorded_from: string;
+        recorded_to: string | null;
       }>(
-        `SELECT id, revision_id, thread_id, source_id, source_timestamp, source_text, object_key
+        `SELECT id, revision_id, thread_id, source_id, source_timestamp, source_text, object_key,
+                valid_time_status,
+                to_char(valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from,
+                to_char(valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to,
+                to_char(recorded_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_from,
+                to_char(recorded_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_to
          FROM pachigraph.history_records r
          WHERE owner_id = $1 AND id = $2
            AND NOT EXISTS (
@@ -243,6 +333,11 @@ export function createHistory(
       return {
         id: row.id,
         revision_id: row.revision_id,
+        valid_time_status: row.valid_time_status,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to,
+        recorded_from: row.recorded_from,
+        recorded_to: row.recorded_to,
         thread_id: row.thread_id,
         timestamp: row.source_timestamp,
         text: row.source_text,

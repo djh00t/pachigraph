@@ -17,6 +17,23 @@ const fixture = JSON.parse(
 
 const owner = 'synthetic-owner';
 
+const acknowledgement = (
+  ownerId: string,
+  input: IngestInput,
+  stored: number,
+  duplicate: number,
+) => ({
+  stored,
+  duplicate,
+  records: prepareHistoryRecords(ownerId, input).map(
+    ({ item, revision, id }) => ({
+      id: item.id,
+      revision_id: revision,
+      archive_id: id,
+    }),
+  ),
+});
+
 type HistoryRow = {
   owner_id: string;
   thread_id: string;
@@ -134,14 +151,14 @@ test('history ingest, replay, and fetch use the in-memory storage boundaries', a
   const first = fixture.records[0];
   assert.ok(first);
 
-  assert.deepEqual(await history.ingest(owner, fixture), {
-    stored: fixture.records.length,
-    duplicate: 0,
-  });
-  assert.deepEqual(await history.ingest(owner, fixture), {
-    stored: 0,
-    duplicate: fixture.records.length,
-  });
+  assert.deepEqual(
+    await history.ingest(owner, fixture),
+    acknowledgement(owner, fixture, fixture.records.length, 0),
+  );
+  assert.deepEqual(
+    await history.ingest(owner, fixture),
+    acknowledgement(owner, fixture, 0, fixture.records.length),
+  );
   assert.equal(pool.rows.size, fixture.records.length);
   assert.equal(objects.objects.size, fixture.records.length);
 
@@ -163,22 +180,22 @@ test('run replay preserves owner-scoped usage evidence', async () => {
   const first = prepareHistoryRecords(owner, fixture);
   const otherOwner = prepareHistoryRecords('synthetic-owner-2', fixture);
 
-  assert.deepEqual(await history.ingest(owner, fixture), {
-    stored: fixture.records.length,
-    duplicate: 0,
-  });
-  assert.deepEqual(await history.ingest(owner, fixture), {
-    stored: 0,
-    duplicate: fixture.records.length,
-  });
-  assert.deepEqual(await history.ingest('synthetic-owner-2', fixture), {
-    stored: fixture.records.length,
-    duplicate: 0,
-  });
-  assert.deepEqual(await recovered.ingest(owner, fixture), {
-    stored: 0,
-    duplicate: fixture.records.length,
-  });
+  assert.deepEqual(
+    await history.ingest(owner, fixture),
+    acknowledgement(owner, fixture, fixture.records.length, 0),
+  );
+  assert.deepEqual(
+    await history.ingest(owner, fixture),
+    acknowledgement(owner, fixture, 0, fixture.records.length),
+  );
+  assert.deepEqual(
+    await history.ingest('synthetic-owner-2', fixture),
+    acknowledgement('synthetic-owner-2', fixture, fixture.records.length, 0),
+  );
+  assert.deepEqual(
+    await recovered.ingest(owner, fixture),
+    acknowledgement(owner, fixture, 0, fixture.records.length),
+  );
 
   assert.equal(pool.rows.size, fixture.records.length * 2);
   assert.equal(objects.objects.size, fixture.records.length * 2);
@@ -258,10 +275,10 @@ test('failed immutable object write leaves ingest retryable', async () => {
   );
   assert.equal(pool.rows.size, 0);
   assert.equal(objects.objects.size, 0);
-  assert.deepEqual(await history.ingest(owner, input), {
-    stored: 1,
-    duplicate: 0,
-  });
+  assert.deepEqual(
+    await history.ingest(owner, input),
+    acknowledgement(owner, input, 1, 0),
+  );
   const row = [...pool.rows.values()][0];
   assert.ok(row);
   assert.deepEqual(

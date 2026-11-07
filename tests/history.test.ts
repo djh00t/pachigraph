@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 
-import { createHistory } from '../server/history.ts';
+import { createHistory, prepareHistoryRecords } from '../server/history.ts';
 import { clearStorage, testPool } from './storage-support.ts';
 
 class MemoryObjects {
@@ -50,6 +50,20 @@ function input(
   };
 }
 
+function acknowledgement(owner: string, value: unknown, stored: number, duplicate: number) {
+  return {
+    stored,
+    duplicate,
+    records: prepareHistoryRecords(owner, value).map(
+      ({ item, revision, id }) => ({
+        id: item.id,
+        revision_id: revision,
+        archive_id: id,
+      }),
+    ),
+  };
+}
+
 function setup() {
   const objects = new MemoryObjects();
   return { objects, history: createHistory(pool, objects) };
@@ -90,14 +104,14 @@ test('migration is repeatable and rejects changed applied SQL', async () => {
 
 test('duplicate replay stores one immutable revision', async () => {
   const { history, objects } = setup();
-  assert.deepEqual(await history.ingest(OWNER_A, input()), {
-    stored: 1,
-    duplicate: 0,
-  });
-  assert.deepEqual(await history.ingest(OWNER_A, input()), {
-    stored: 0,
-    duplicate: 1,
-  });
+  assert.deepEqual(
+    await history.ingest(OWNER_A, input()),
+    acknowledgement(OWNER_A, input(), 1, 0),
+  );
+  assert.deepEqual(
+    await history.ingest(OWNER_A, input()),
+    acknowledgement(OWNER_A, input(), 0, 1),
+  );
   assert.equal(objects.objects.size, 1);
   assert.equal((await history.status(OWNER_A)).records, 1);
 });
@@ -109,7 +123,7 @@ test('changed and backfilled source events append deterministic revisions', asyn
   await history.ingest(OWNER_A, input('older', { original: true }));
   assert.deepEqual(
     await history.ingest(OWNER_A, input('newer', { a: 1, b: 2 })),
-    { stored: 0, duplicate: 1 },
+    acknowledgement(OWNER_A, input('newer', { a: 1, b: 2 }), 0, 1),
   );
   assert.equal((await history.status(OWNER_A)).records, 2);
 });
@@ -133,10 +147,10 @@ test('object and database failures remain retryable', async () => {
     DROP TRIGGER reject_history_insert ON pachigraph.history_records;
     DROP FUNCTION pachigraph.reject_history_insert()
   `);
-  assert.deepEqual(await history.ingest(OWNER_A, input()), {
-    stored: 1,
-    duplicate: 0,
-  });
+  assert.deepEqual(
+    await history.ingest(OWNER_A, input()),
+    acknowledgement(OWNER_A, input(), 1, 0),
+  );
 });
 
 test('deletion commits its tombstone before retryable object cleanup', async () => {
@@ -246,10 +260,10 @@ test('rejects malformed/deep records and accepts depth 64', async () => {
   let record: Record<string, unknown> = { value: 'boundary' };
   for (let depth = 1; depth < 64; depth += 1) record = { child: record };
   const sample = input('boundary depth', record);
-  assert.deepEqual(await history.ingest(OWNER_A, sample), {
-    stored: 1,
-    duplicate: 0,
-  });
+  assert.deepEqual(
+    await history.ingest(OWNER_A, sample),
+    acknowledgement(OWNER_A, sample, 1, 0),
+  );
   const found = (await history.search(OWNER_A, 'boundary')).results[0];
   assert.deepEqual((await history.fetch(OWNER_A, found.id)).record, record);
   await assert.rejects(

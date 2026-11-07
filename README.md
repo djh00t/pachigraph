@@ -9,7 +9,7 @@ revisions. Keycloak provides browser identity and scoped API keys serve agents.
 There is no embedding service or AI processing.
 
 Application source stays in [djh00t/pachigraph](https://github.com/djh00t/pachigraph).
-Candidate source-owned workload and route manifests live in [infra/k8s](infra/k8s/README.md).
+Candidate source-owned workload and route manifests live in [.flux](.flux/README.md).
 [code_pipeline](https://github.com/Titanicar-US/code_pipeline/issues/710) retains current
 Flux ownership and platform/environment operations until accepted migration cutover.
 The intended endpoint is `https://pachigraph.e164sip.com`. Current Kubernetes

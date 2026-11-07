@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-const source = new URL('../infra/k8s/', import.meta.url);
+const source = new URL('../.flux/', import.meta.url);
 const read = (path: string) =>
   JSON.parse(readFileSync(new URL(path, source), 'utf8'));
 const workload = read('workload/app.json').items;

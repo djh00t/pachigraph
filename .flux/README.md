@@ -4,9 +4,9 @@ These existing JSON manifests and uppercase `Kustomization` files are applicatio
 
 | Render path | Resources |
 | --- | --- |
-| `infra/k8s/workload` | Deployment, Service, NetworkPolicy |
-| `infra/k8s/routes` | Two HTTPRoutes and SecurityPolicy |
-| `infra/k8s` | Aggregate for review; transfer workload and routes independently |
+| `.flux/workload` | Deployment, Service, NetworkPolicy |
+| `.flux/routes` | Two HTTPRoutes and SecurityPolicy |
+| `.flux` | Aggregate for review; transfer workload and routes independently |
 
 Use `kubectl kustomize <path>`. JSON is valid Kubernetes input; retain the native uppercase filename. Existing tests in `tests/kubernetes-sources.test.ts` cover the source boundaries and native rendering. All six resources preserve the approved cluster namespace, labels/selectors, image digest, ports, mounts and authentication/network restrictions. Do not create another copied bundle.
 
@@ -15,3 +15,5 @@ code_pipeline owns environment registrations, approved source/image references, 
 After accepted cutover, release through reviewed references rather than copying manifests back centrally. Existing image CI publishes immutable images; it does not deploy and publication is not runtime acceptance. Keep the approved image during ownership migration.
 
 Documentation rollback has no live effect. Live rollback must reverse the staged ownership transfer; a simple source revert must not leave competing reconcilers. Preserve existing databases, bucket objects, credentials and persistent identities through qualification and rollback.
+
+The infra/k8s entrypoints delegate to this source for existing pinned platform consumers. Remove those entrypoints after code_pipeline references .flux/workload and .flux/routes.

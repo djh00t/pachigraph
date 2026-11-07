@@ -57,7 +57,7 @@ jobs:
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: |
-          cp -R infra/k8s "${RUNNER_TEMP}/release-k8s"
+          cp -R .flux "${RUNNER_TEMP}/release-k8s"
           RELEASE_ROOT="${RUNNER_TEMP}/release-k8s" RELEASE_DIGEST="${DIGEST}" node <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
           const path = `${process.env.RELEASE_ROOT}/workload/Kustomization`;

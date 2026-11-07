@@ -1,0 +1,22 @@
+{
+  "dataset_id": "pachigraph.synthetic-agent-run.v1",
+  "purpose": "Exercise archive identity, retry and evidence coverage using a synthetic two-attempt run.",
+  "schema_version": "pachigraph.agent-run.v1",
+  "provenance": {
+    "kind": "synthetic",
+    "source_issue": "djh00t/pachigraph#65",
+    "source_run_id": "synthetic-run-001"
+  },
+  "storage": {
+    "path": "tests/fixtures/agent-run/synthetic-run.json",
+    "sha256": "3bbe56a219b1dfb616877253d2184d5d6a8f123992206fb2c8b63f77cf07c6ae"
+  },
+  "owner": "djh00t/pachigraph",
+  "access": "Public synthetic test fixture. Never add real transcripts, secrets or account identifiers.",
+  "retention": "Retain with the supported fixture version in Git. Review changes under repository policy.",
+  "label_quality": {
+    "kind": "synthetic",
+    "verified_live_outcomes": false,
+    "allowed_split": "development"
+  }
+}

@@ -495,12 +495,10 @@ export function createHistory(
           'as-of query requires valid_at and recorded_at',
         );
 
-      const rootResult = await pool.query<{
-        id: string;
+      const rootMetadataResult = await pool.query<{
         thread_id: string;
-        corrects_id: string | null;
       }>(
-        `SELECT r.id, r.thread_id, r.corrects_id
+        `SELECT r.thread_id
          FROM pachigraph.history_records r
          WHERE r.owner_id = $1 AND r.id = $2
            AND NOT EXISTS (
@@ -509,29 +507,49 @@ export function createHistory(
            )`,
         [owner, rootId],
       );
-      const root = rootResult.rows[0];
-      if (!root) throw new HistoryError(404, 'history record not found');
-      if (root.corrects_id !== null)
-        throw new HistoryError(400, 'root_id must identify a lineage root');
+      const rootMetadata = rootMetadataResult.rows[0];
+      if (!rootMetadata)
+        throw new HistoryError(404, 'history record not found');
 
-      const lineageResult = await pool.query<{
-        id: string;
-        revision_id: string;
-        thread_id: string;
-        source_id: string;
-        source_timestamp: string;
-        source_text: string;
-        object_key: string;
-        valid_time_status: 'unknown' | 'known';
-        valid_from: string | null;
-        valid_to: string | null;
-        recorded_from: string;
-        recorded_to: string | null;
-        corrects_id: string | null;
-        is_retraction: boolean;
-        depth: number;
-      }>(
-        `WITH RECURSIVE as_of_lineage AS (
+      return transaction(pool, async (client) => {
+        await lockThread(client, owner, rootMetadata.thread_id);
+        const rootResult = await client.query<{
+          id: string;
+          thread_id: string;
+          corrects_id: string | null;
+        }>(
+          `SELECT r.id, r.thread_id, r.corrects_id
+           FROM pachigraph.history_records r
+           WHERE r.owner_id = $1 AND r.id = $2 AND r.thread_id = $3
+             AND NOT EXISTS (
+               SELECT 1 FROM pachigraph.thread_tombstones
+               WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             )`,
+          [owner, rootId, rootMetadata.thread_id],
+        );
+        const root = rootResult.rows[0];
+        if (!root) throw new HistoryError(404, 'history record not found');
+        if (root.corrects_id !== null)
+          throw new HistoryError(400, 'root_id must identify a lineage root');
+
+        const lineageResult = await client.query<{
+          id: string;
+          revision_id: string;
+          thread_id: string;
+          source_id: string;
+          source_timestamp: string;
+          source_text: string;
+          object_key: string;
+          valid_time_status: 'unknown' | 'known';
+          valid_from: string | null;
+          valid_to: string | null;
+          recorded_from: string;
+          recorded_to: string | null;
+          corrects_id: string | null;
+          is_retraction: boolean;
+          depth: number;
+        }>(
+          `WITH RECURSIVE as_of_lineage AS (
            SELECT r.id, r.revision_id, r.thread_id, r.source_id,
                   r.source_timestamp, r.source_text, r.object_key,
                   r.valid_time_status,
@@ -569,107 +587,108 @@ export function createHistory(
                 recorded_from, recorded_to, corrects_id, is_retraction, depth
          FROM as_of_lineage
          LIMIT ${MAX_AS_OF_LINEAGE + 1}`,
-        [owner, root.thread_id, rootId, recordedAt],
-      );
-      const lineage = lineageResult.rows;
-      if (lineage.length === 0)
-        throw new HistoryError(404, 'history record not found');
-      const response = {
-        root_id: rootId,
-        valid_at: validAt,
-        recorded_at: recordedAt,
-      };
-      if (lineage.length > MAX_AS_OF_LINEAGE)
-        return {
-          ...response,
-          status: 'lineage_limit',
-          limit: MAX_AS_OF_LINEAGE,
-        };
-
-      const isRecordedAt = (row: (typeof lineage)[number]) => {
-        const from = normalizeValidEndpoint(row.recorded_from)!;
-        const to =
-          row.recorded_to === null
-            ? null
-            : normalizeValidEndpoint(row.recorded_to);
-        return from <= recordedAt && (to === null || recordedAt < to);
-      };
-      const isValidAt = (row: (typeof lineage)[number]) => {
-        if (row.valid_time_status === 'unknown') return true;
-        const from =
-          row.valid_from === null
-            ? null
-            : normalizeValidEndpoint(row.valid_from);
-        const to =
-          row.valid_to === null ? null : normalizeValidEndpoint(row.valid_to);
-        return (
-          (from === null || from <= validAt) && (to === null || validAt < to)
+          [owner, root.thread_id, rootId, recordedAt],
         );
-      };
-      const visible = lineage.filter(isRecordedAt);
-      if (visible.length === 0) return { ...response, status: 'not_known' };
-      const eligible = visible.filter(isValidAt);
-      if (eligible.length === 0)
-        return { ...response, status: 'outside_validity' };
+        const lineage = lineageResult.rows;
+        if (lineage.length === 0)
+          throw new HistoryError(404, 'history record not found');
+        const response = {
+          root_id: rootId,
+          valid_at: validAt,
+          recorded_at: recordedAt,
+        };
+        if (lineage.length > MAX_AS_OF_LINEAGE)
+          return {
+            ...response,
+            status: 'lineage_limit',
+            limit: MAX_AS_OF_LINEAGE,
+          };
 
-      const byId = new Map(lineage.map((row) => [row.id, row]));
-      const eligibleIds = new Set(eligible.map((row) => row.id));
-      const superseded = new Set<string>();
-      for (const row of eligible) {
-        const visited = new Set<string>();
-        let parent = row.corrects_id ? byId.get(row.corrects_id) : undefined;
-        while (parent && !visited.has(parent.id)) {
-          visited.add(parent.id);
-          if (eligibleIds.has(parent.id)) superseded.add(parent.id);
-          parent = parent.corrects_id
-            ? byId.get(parent.corrects_id)
-            : undefined;
+        const isRecordedAt = (row: (typeof lineage)[number]) => {
+          const from = normalizeValidEndpoint(row.recorded_from)!;
+          const to =
+            row.recorded_to === null
+              ? null
+              : normalizeValidEndpoint(row.recorded_to);
+          return from <= recordedAt && (to === null || recordedAt < to);
+        };
+        const isValidAt = (row: (typeof lineage)[number]) => {
+          if (row.valid_time_status === 'unknown') return true;
+          const from =
+            row.valid_from === null
+              ? null
+              : normalizeValidEndpoint(row.valid_from);
+          const to =
+            row.valid_to === null ? null : normalizeValidEndpoint(row.valid_to);
+          return (
+            (from === null || from <= validAt) && (to === null || validAt < to)
+          );
+        };
+        const visible = lineage.filter(isRecordedAt);
+        if (visible.length === 0) return { ...response, status: 'not_known' };
+        const eligible = visible.filter(isValidAt);
+        if (eligible.length === 0)
+          return { ...response, status: 'outside_validity' };
+
+        const byId = new Map(lineage.map((row) => [row.id, row]));
+        const eligibleIds = new Set(eligible.map((row) => row.id));
+        const superseded = new Set<string>();
+        for (const row of eligible) {
+          const visited = new Set<string>();
+          let parent = row.corrects_id ? byId.get(row.corrects_id) : undefined;
+          while (parent && !visited.has(parent.id)) {
+            visited.add(parent.id);
+            if (eligibleIds.has(parent.id)) superseded.add(parent.id);
+            parent = parent.corrects_id
+              ? byId.get(parent.corrects_id)
+              : undefined;
+          }
         }
-      }
-      const winners = eligible
-        .filter((row) => !superseded.has(row.id))
-        .sort((left, right) => left.id.localeCompare(right.id));
-      if (winners.length > 1)
+        const winners = eligible
+          .filter((row) => !superseded.has(row.id))
+          .sort((left, right) => left.id.localeCompare(right.id));
+        if (winners.length > 1)
+          return {
+            ...response,
+            status: 'ambiguous',
+            candidate_ids: winners.map((row) => row.id),
+          };
+        const winner = winners[0];
+        if (!winner) return { ...response, status: 'outside_validity' };
+        const object = await objects.getText(winner.object_key);
+        if (object === null)
+          throw new HistoryError(503, 'history record body unavailable');
         return {
           ...response,
-          status: 'ambiguous',
-          candidate_ids: winners.map((row) => row.id),
+          status:
+            winner.valid_time_status === 'unknown'
+              ? 'unknown'
+              : winner.is_retraction
+                ? 'retracted'
+                : 'resolved',
+          record: {
+            id: winner.id,
+            revision_id: winner.revision_id,
+            thread_id: winner.thread_id,
+            timestamp: winner.source_timestamp,
+            text: winner.source_text,
+            record: JSON.parse(object) as Record<string, unknown>,
+            valid_time_status: winner.valid_time_status,
+            valid_from: winner.valid_from,
+            valid_to: winner.valid_to,
+            recorded_from: winner.recorded_from,
+            recorded_to: winner.recorded_to,
+            corrects_id: winner.corrects_id,
+            retracts: winner.is_retraction,
+            citation: citation(
+              winner.id,
+              winner.thread_id,
+              winner.source_id,
+              winner.source_timestamp,
+            ),
+          },
         };
-      const winner = winners[0];
-      if (!winner) return { ...response, status: 'outside_validity' };
-      const object = await objects.getText(winner.object_key);
-      if (object === null)
-        throw new HistoryError(503, 'history record body unavailable');
-      return {
-        ...response,
-        status:
-          winner.valid_time_status === 'unknown'
-            ? 'unknown'
-            : winner.is_retraction
-              ? 'retracted'
-              : 'resolved',
-        record: {
-          id: winner.id,
-          revision_id: winner.revision_id,
-          thread_id: winner.thread_id,
-          timestamp: winner.source_timestamp,
-          text: winner.source_text,
-          record: JSON.parse(object) as Record<string, unknown>,
-          valid_time_status: winner.valid_time_status,
-          valid_from: winner.valid_from,
-          valid_to: winner.valid_to,
-          recorded_from: winner.recorded_from,
-          recorded_to: winner.recorded_to,
-          corrects_id: winner.corrects_id,
-          retracts: winner.is_retraction,
-          citation: citation(
-            winner.id,
-            winner.thread_id,
-            winner.source_id,
-            winner.source_timestamp,
-          ),
-        },
-      };
+      });
     },
 
     async search(owner: string, query: string) {

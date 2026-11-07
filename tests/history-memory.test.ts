@@ -59,8 +59,30 @@ class MemoryPool {
   readonly tombstones = new Set<string>();
   failNextQuery = false;
   private lockTail = Promise.resolve();
+  private nextLockDelay:
+    | { started: () => void; gate: Promise<void> }
+    | undefined;
+
+  pauseNextThreadLock() {
+    let started!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.nextLockDelay = { started, gate };
+    return { waiting, release };
+  }
 
   private async acquireThreadLock() {
+    const delay = this.nextLockDelay;
+    if (delay) {
+      this.nextLockDelay = undefined;
+      delay.started();
+      await delay.gate;
+    }
     const previous = this.lockTail;
     let release: () => void = () => {};
     this.lockTail = new Promise<void>((resolve) => {
@@ -78,6 +100,13 @@ class MemoryPool {
           releaseLock = await this.acquireThreadLock();
           return { rows: [], rowCount: 0 };
         }
+        if (
+          statement.includes('SELECT r.id, r.thread_id, r.corrects_id') ||
+          statement.includes('WITH RECURSIVE as_of_lineage') ||
+          statement.includes('SELECT r.thread_id')
+        ) {
+          return this.query(statement, values);
+        }
         const result = await this.execute(statement, values);
         if (/^(COMMIT|ROLLBACK)$/u.test(statement)) {
           releaseLock?.();
@@ -94,16 +123,13 @@ class MemoryPool {
       this.failNextQuery = false;
       throw new Error('injected database read failure');
     }
-    if (
-      statement.includes(
-        'SELECT r.id, r.thread_id, r.corrects_id FROM pachigraph.history_records r',
-      )
-    ) {
-      const [ownerId, id] = values.map(String);
+    if (statement.includes('SELECT r.id, r.thread_id, r.corrects_id')) {
+      const [ownerId, id, threadId] = values.map(String);
       const row = [...this.rows.values()].find(
         (candidate) =>
           candidate.owner_id === ownerId &&
           candidate.id === id &&
+          (!threadId || candidate.thread_id === threadId) &&
           !this.tombstones.has(`${ownerId}\0${candidate.thread_id}`),
       );
       return {
@@ -116,6 +142,19 @@ class MemoryPool {
               } as T,
             ]
           : [],
+        rowCount: Number(Boolean(row)),
+      };
+    }
+    if (statement.includes('SELECT r.thread_id')) {
+      const [ownerId, id] = values.map(String);
+      const row = [...this.rows.values()].find(
+        (candidate) =>
+          candidate.owner_id === ownerId &&
+          candidate.id === id &&
+          !this.tombstones.has(`${ownerId}\0${candidate.thread_id}`),
+      );
+      return {
+        rows: row ? [{ thread_id: row.thread_id } as T] : [],
         rowCount: Number(Boolean(row)),
       };
     }
@@ -336,6 +375,22 @@ class MemoryObjects {
   readonly objects = new Map<string, string>();
   failNextPut = false;
   failNextGet = false;
+  private nextGetDelay:
+    | { started: () => void; gate: Promise<void> }
+    | undefined;
+
+  pauseNextGet() {
+    let started!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.nextGetDelay = { started, gate };
+    return { waiting, release };
+  }
 
   async putImmutable(key: string, value: string) {
     if (this.failNextPut) {
@@ -346,6 +401,12 @@ class MemoryObjects {
   }
 
   async getText(key: string) {
+    const delay = this.nextGetDelay;
+    if (delay) {
+      this.nextGetDelay = undefined;
+      delay.started();
+      await delay.gate;
+    }
     if (this.failNextGet) {
       this.failNextGet = false;
       throw new Error('injected object read failure');
@@ -957,6 +1018,54 @@ test('future descendants do not exhaust the limit for an earlier recorded cut', 
   assert.equal(result.status, 'resolved');
   assert.ok('record' in result);
   assert.equal(result.record.id, root.id);
+});
+
+test('as-of holds the thread lock through object read and revalidates after delete', async () => {
+  const first = setup();
+  const original = fixture.records[0]!;
+  const rootInput = {
+    ...fixture,
+    records: [{ ...original, valid_time: { from: null, to: null } }],
+  };
+  const root = prepareHistoryRecords(owner, rootInput)[0]!;
+  await first.history.ingest(owner, rootInput);
+  const recordedAt = recordedPoint([...first.pool.rows.values()][0]!);
+  const getDelay = first.objects.pauseNextGet();
+  const asOfResult = first.history.asOf(
+    owner,
+    root.id,
+    '2031-01-01T00:00:00Z',
+    recordedAt,
+  );
+  await getDelay.waiting;
+  let deleteCompleted = false;
+  const deletion = first.history
+    .deleteThread(owner, fixture.thread_id)
+    .then(() => {
+      deleteCompleted = true;
+    });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(deleteCompleted, false);
+  getDelay.release();
+  const result = await asOfResult;
+  assert.equal(result.status, 'resolved');
+  await deletion;
+  assert.equal(deleteCompleted, true);
+
+  const second = setup();
+  await second.history.ingest(owner, rootInput);
+  const staleLock = second.pool.pauseNextThreadLock();
+  const staleAsOf = second.history.asOf(
+    owner,
+    root.id,
+    '2031-01-01T00:00:00Z',
+    recordedAt,
+  );
+  const staleRejection = assert.rejects(staleAsOf, { status: 404 });
+  await staleLock.waiting;
+  await second.history.deleteThread(owner, fixture.thread_id);
+  staleLock.release();
+  await staleRejection;
 });
 
 test('correction ingest is immutable, retryable, and fetches both relation directions', async () => {

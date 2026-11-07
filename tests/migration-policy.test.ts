@@ -6,10 +6,6 @@ import test from 'node:test';
 // An early lint only. The database role's privileges are the security control.
 
 const migrations = join(process.cwd(), 'db', 'migrations');
-// Only the SET pattern is anchored at the start of a statement, after comments
-// are removed, so a column update such as `UPDATE ... SET role = ...` does not
-// count. The other patterns match anywhere in a statement, so privileged SQL
-// wrapped in a DO block or EXECUTE string is still caught.
 const forbidden = [
   /\bcreate\s+extension\b/i,
   /\bcreate\s+(?:role|user)\b/i,
@@ -19,7 +15,10 @@ const forbidden = [
   /\bgrant\b[\s\S]*\bto\s+public\b/i,
   /\bcopy\b[\s\S]*\bprogram\b/i,
   /\bcreate\s+(?:or\s+replace\s+)?(?:trusted\s+)?(?:procedural\s+)?language\b/i,
-  /^set\s+(?:(?:session|local)\s+)?(?:role|session\s+authorization)\b/i,
+  // A role assignment is privileged at a command boundary. The equals
+  // sign alone cannot distinguish SET ROLE from an UPDATE assignment.
+  /\bset\s+(?:(?:session|local)\s+)?(?:role\b(?!\s*[=.[])|session\s+authorization\b)/i,
+  /(?:^|\b(?:begin|then|else|loop)\s+|\bexecute\s+['"]\s*)set\s+(?:(?:session|local)\s+)?role\s*=/i,
 ];
 
 function statements(sql: string): string[] {
@@ -64,7 +63,12 @@ test('migration policy matcher rejects privileged SQL', () => {
   }
   for (const sql of [
     'CREATE TABLE pachigraph.example (id int);',
+    'SET search_path TO pachigraph;',
+    'DO $$ BEGIN SET LOCAL search_path TO pachigraph; END $$;',
+    "DO $$ BEGIN EXECUTE 'UPDATE pachigraph.members SET role = ''owner'''; END $$;",
     "UPDATE pachigraph.members SET role = 'owner';",
+    "UPDATE pachigraph.members SET role[1] = 'owner';",
+    "UPDATE pachigraph.members SET role.name = 'owner';",
     'ALTER TABLE pachigraph.members ADD COLUMN role text;',
     '-- CREATE ROLE app;\nSELECT 1;',
     '/* GRANT SELECT ON t TO PUBLIC; */ SELECT 1;',
@@ -72,6 +76,34 @@ test('migration policy matcher rejects privileged SQL', () => {
     assert.equal(hasForbiddenStatement(sql), false, sql);
   }
 });
+
+for (const command of [
+  'CREATE EXTENSION pgcrypto',
+  'ALTER ROLE app',
+  'ALTER USER app',
+  'ALTER SYSTEM SET work_mem = 1',
+  'CREATE DATABASE app',
+  'ALTER DATABASE app',
+  "COPY data FROM PROGRAM 'true'",
+  'CREATE LANGUAGE plpgsql',
+  'SET ROLE app',
+  "SET ROLE = 'app'",
+  'SET SESSION AUTHORIZATION app',
+  'SET LOCAL ROLE app',
+  'SET SESSION ROLE app',
+]) {
+  test(`migration policy rejects wrapped ${command}`, () => {
+    assert.equal(
+      hasForbiddenStatement(`DO $$ BEGIN ${command}; END $$;`),
+      true,
+    );
+    const escaped = command.replaceAll("'", "''");
+    assert.equal(
+      hasForbiddenStatement(`DO $$ BEGIN EXECUTE '${escaped}'; END $$;`),
+      true,
+    );
+  });
+}
 
 test('SQL migrations avoid privileged statements', () => {
   for (const filename of readdirSync(migrations).filter((name) =>

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
@@ -8,6 +9,8 @@ import { join, resolve } from 'node:path';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+import { seedTenant, testPool } from './storage-support.ts';
 
 assert.match(
   process.env.PACHIGRAPH_TEST_DATABASE_NAME ?? '',
@@ -43,9 +46,11 @@ await once(reservation, 'listening');
 const port = reservation.address().port;
 await new Promise((done) => reservation.close(done));
 const base = `http://127.0.0.1:${port}`;
+const tenant = `t-${randomBytes(8).toString('hex')}`;
+const subject = `standalone-smoke-${tenant}`;
 const token = await new SignJWT({ name: 'Synthetic owner' })
   .setProtectedHeader({ alg: 'RS256', kid: 'smoke' })
-  .setSubject('standalone-smoke')
+  .setSubject(subject)
   .setIssuer(dependencyUrl)
   .setAudience('pachigraph')
   .setIssuedAt()
@@ -63,7 +68,7 @@ const applicationEnvironment = {
   AWS_SECRET_ACCESS_KEY: 'synthetic',
   PACHIGRAPH_OIDC_ISSUER: dependencyUrl,
   PACHIGRAPH_OIDC_JWKS_URL: `${dependencyUrl}/jwks`,
-  PACHIGRAPH_ALLOWED_SUBJECTS: 'standalone-smoke',
+  PACHIGRAPH_ALLOWED_SUBJECTS: subject,
 };
 const image = process.env.PACHIGRAPH_SMOKE_IMAGE;
 const containerName = `pachigraph-smoke-${port}`;
@@ -135,13 +140,19 @@ try {
   }
   assert.ok(ready, 'Standalone readiness');
   assert.equal((await request('/health')).status, 200);
+  const pool = testPool();
+  try {
+    await seedTenant(pool, tenant, subject);
+  } finally {
+    await pool.end();
+  }
   const page = await request('/', token);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Find the thought/);
   assert.equal((await request('/keys', token)).status, 200);
   assert.equal((await request('/api/status')).status, 401);
   const forged = await fetch(base + '/api/status', {
-    headers: { 'oai-user-id': 'standalone-smoke' },
+    headers: { 'oai-user-id': subject },
   });
   assert.equal(forged.status, 401);
   const minted = await request('/api/keys', token, 'POST', {

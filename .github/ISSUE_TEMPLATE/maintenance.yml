@@ -1,0 +1,47 @@
+name: "Maintenance or documentation"
+description: "Improve upkeep or explain an existing workflow"
+title: "chore: "
+body:
+  - type: markdown
+    attributes:
+      value: "## Maintenance or documentation\nImprove upkeep or explain an existing workflow. Use the acceptance checklist to make the issue reviewable."
+  - type: textarea
+    id: summary
+    attributes:
+      label: Pachigraph issue summary
+      description: "Explain why the work is needed and identify the affected files or subsystem."
+      placeholder: "Document the migration lint command beside the migration instructions."
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: "Describe the intended result and any scope limits."
+      placeholder: "Document the migration lint command beside the migration instructions."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance checklist
+      description: "Write observable results a reviewer can verify."
+      placeholder: "- [ ] A reviewer can reproduce the expected result."
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Evidence and verification
+      description: "Provide reproduction steps, safe evidence links, or an exact verification command."
+      placeholder: "Run the relevant offline check and state the expected result."
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Dependencies and rollout
+      description: "Link dependencies or blockers. Include migration and rollback details when applicable."
+      placeholder: "Related issue, deployment order, or rollback steps."
+    validations:
+      required: false

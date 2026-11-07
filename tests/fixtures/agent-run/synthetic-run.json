@@ -1,0 +1,208 @@
+{
+  "synthetic": true,
+  "schema_version": "pachigraph.agent-run.v1",
+  "thread_id": "018f47a8-4af3-7b83-bf0e-6f2b4e955c12",
+  "records": [
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "timestamp": "2026-10-01T12:00:00.000Z",
+      "text": "run started",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "event_type": "run.started",
+        "sequence": 1,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-001",
+        "parent_attempt_id": null,
+        "coverage": { "usage": "complete", "transcript": "complete" }
+      }
+    },
+    {
+      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "timestamp": "2026-10-01T12:00:01.000Z",
+      "text": "first model call with ordered context",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_type": "model.call",
+        "sequence": 2,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-001",
+        "turn_id": "turn-001",
+        "model_call_id": "model-call-001",
+        "model": { "provider": "fixture", "name": "synthetic-model" },
+        "context": {
+          "projection_revision": "projection-01",
+          "ordered_source_refs": ["repo://synthetic/README.md@rev-01", "repo://synthetic/src/main.ts@rev-02"]
+        },
+        "usage": {
+          "producer": "synthetic-provider",
+          "units": { "input_tokens": 120, "output_tokens": 18 },
+          "report_semantics": "provider-reported",
+          "receipt_id": "receipt-001",
+          "coverage": "reported"
+        }
+      }
+    },
+    {
+      "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "timestamp": "2026-10-01T12:00:02.000Z",
+      "text": "assistant transcript turn one",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "event_type": "transcript.message",
+        "sequence": 3,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-001",
+        "turn_id": "turn-001",
+        "speaker": "assistant",
+        "content": "I will inspect the fixture repository."
+      }
+    },
+    {
+      "id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "timestamp": "2026-10-01T12:00:03.000Z",
+      "text": "tool call and result",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "event_type": "tool.call.completed",
+        "sequence": 4,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-001",
+        "turn_id": "turn-001",
+        "tool_call_id": "tool-call-001",
+        "tool": "read_file",
+        "arguments": { "path": "README.md" },
+        "result": { "text": "Synthetic project documentation." },
+        "trace_span_id": "span-004"
+      }
+    },
+    {
+      "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "timestamp": "2026-10-01T12:00:04.000Z",
+      "text": "tool execution trace span",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "event_type": "trace.span",
+        "sequence": 5,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-001",
+        "span_id": "span-004",
+        "parent_span_id": null,
+        "operation": "tool.read_file",
+        "status": "ok"
+      }
+    },
+    {
+      "id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "timestamp": "2026-10-01T12:01:00.000Z",
+      "text": "second attempt started after bounded retry",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "event_type": "attempt.started",
+        "sequence": 6,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-002",
+        "parent_attempt_id": "attempt-001",
+        "retry_reason": "synthetic transient failure"
+      }
+    },
+    {
+      "id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "timestamp": "2026-10-01T12:01:01.000Z",
+      "text": "second attempt model usage redacted by producer",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "event_type": "model.call",
+        "sequence": 7,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-002",
+        "turn_id": "turn-002",
+        "model_call_id": "model-call-002",
+        "model": { "provider": "fixture", "name": "synthetic-model" },
+        "usage": {
+          "producer": "synthetic-provider",
+          "units": null,
+          "report_semantics": "redacted-by-source",
+          "receipt_id": "receipt-002",
+          "coverage": "redacted"
+        }
+      }
+    },
+    {
+      "id": "2222222222222222222222222222222222222222222222222222222222222222",
+      "timestamp": "2026-10-01T12:01:02.000Z",
+      "text": "second attempt tool call result and artifact",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "2222222222222222222222222222222222222222222222222222222222222222",
+        "event_type": "tool.call.completed",
+        "sequence": 8,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-002",
+        "turn_id": "turn-002",
+        "tool_call_id": "tool-call-002",
+        "tool": "write_file",
+        "arguments": { "path": "output.txt", "content": "synthetic result" },
+        "result": { "bytes_written": 15 },
+        "artifact_refs": ["artifact://synthetic-run-001/output.txt@sha256:2222222222222222222222222222222222222222222222222222222222222222"]
+      }
+    },
+    {
+      "id": "3333333333333333333333333333333333333333333333333333333333333333",
+      "timestamp": "2026-10-01T12:01:03.000Z",
+      "text": "later context revision supersedes earlier projection",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "3333333333333333333333333333333333333333333333333333333333333333",
+        "event_type": "context.packet",
+        "sequence": 9,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-002",
+        "projection_revision": "projection-02",
+        "supersedes_projection_revision": "projection-01",
+        "ordered_source_refs": ["repo://synthetic/src/main.ts@rev-03", "repo://synthetic/tests/main.test.ts@rev-04"]
+      }
+    },
+    {
+      "id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "timestamp": "2026-10-01T12:01:04.000Z",
+      "text": "user artifact reference",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "4444444444444444444444444444444444444444444444444444444444444444",
+        "event_type": "artifact.created",
+        "sequence": 10,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-002",
+        "artifact_id": "artifact-001",
+        "uri": "artifact://synthetic-run-001/output.txt@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "media_type": "text/plain"
+      }
+    },
+    {
+      "id": "5555555555555555555555555555555555555555555555555555555555555555",
+      "timestamp": "2026-10-01T12:01:05.000Z",
+      "text": "usage unavailable for one collector path",
+      "record": {
+        "schema": "pachigraph.agent-run-event.v1",
+        "event_id": "5555555555555555555555555555555555555555555555555555555555555555",
+        "event_type": "usage.observation",
+        "sequence": 11,
+        "run_id": "synthetic-run-001",
+        "attempt_id": "attempt-002",
+        "producer": "synthetic-collector",
+        "units": null,
+        "report_semantics": "not-reported",
+        "receipt_id": null,
+        "coverage": "unavailable"
+      }
+    }
+  ]
+}

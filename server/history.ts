@@ -98,6 +98,28 @@ function validate(owner: string, input: unknown): asserts input is IngestInput {
   }
 }
 
+function prepareValidatedHistoryRecords(owner: string, input: IngestInput) {
+  const ownerHash = digest(owner);
+  return input.records.map((item) => {
+    const record = canonical(item.record);
+    const revision = digest(
+      `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`,
+    );
+    return {
+      item,
+      record,
+      revision,
+      id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
+      key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
+    };
+  });
+}
+
+export function prepareHistoryRecords(owner: string, input: unknown) {
+  validate(owner, input);
+  return prepareValidatedHistoryRecords(owner, input);
+}
+
 function citation(
   id: string,
   threadId: string,
@@ -142,20 +164,7 @@ export function createHistory(
       input: unknown,
     ): Promise<{ stored: number; duplicate: number }> {
       validate(owner, input);
-      const ownerHash = digest(owner);
-      const records = input.records.map((item) => {
-        const record = canonical(item.record);
-        const revision = digest(
-          `{"record":${record},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}}`,
-        );
-        return {
-          item,
-          record,
-          revision,
-          id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
-          key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
-        };
-      });
+      const records = prepareValidatedHistoryRecords(owner, input);
 
       return transaction(pool, async (client) => {
         await lockThread(client, owner, input.thread_id);

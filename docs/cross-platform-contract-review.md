@@ -92,6 +92,21 @@ storage-key and deletion scope unnecessarily. Alternative: versioning the entire
 ingest endpoint adds migration work before any demonstrated need. Prefer the
 small additive proposal above, with explicit compatibility checks.
 
+### Bitemporal archive time
+
+New archive revisions can include `valid_time: { from, to }`. Endpoints are
+ISO timestamps with an explicit offset and no more than six fractional digits;
+Pachigraph normalizes them to UTC microsecond precision before revision hashing
+and storage. A missing `valid_time` means validity is unknown. A present interval
+with a null endpoint means that bound is open; `{ from: null, to: null }` is a
+known unbounded interval, not unknown. Empty and reversed closed intervals are
+rejected. Existing `timestamp` remains source time and never supplies valid
+time. Legacy records keep their revision IDs and backfill validity as unknown.
+`recorded_from` is server-owned and comes from the existing ingestion receipt
+instant (`ingested_at`); `recorded_to` is open until a separate correction/
+supersession slice closes it. This slice stores and fetches both time dimensions
+but does not implement supersession or concurrent correction handling.
+
 ## Dependency graph and bounded deliverables
 
 Each row is a separately reviewable slice of at most 15 minutes. If implementation

@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
-import { createHistory, type IngestInput } from '../server/history.ts';
+import {
+  createHistory,
+  prepareHistoryRecords,
+  type IngestInput,
+} from '../server/history.ts';
 
 const fixture = JSON.parse(
   readFileSync(
@@ -151,6 +155,96 @@ test('history ingest, replay, and fetch use the in-memory storage boundaries', a
   assert.equal(fetched.text, first.text);
   assert.deepEqual(fetched.record, first.record);
   assert.match(fetched.citation, new RegExp(`\\?id=${expected.id}`));
+});
+
+test('run replay preserves owner-scoped usage evidence', async () => {
+  const { pool, objects, history } = setup();
+  const recovered = createHistory(pool as unknown as Pool, objects);
+  const first = prepareHistoryRecords(owner, fixture);
+  const otherOwner = prepareHistoryRecords('synthetic-owner-2', fixture);
+
+  assert.deepEqual(await history.ingest(owner, fixture), {
+    stored: fixture.records.length,
+    duplicate: 0,
+  });
+  assert.deepEqual(await history.ingest(owner, fixture), {
+    stored: 0,
+    duplicate: fixture.records.length,
+  });
+  assert.deepEqual(await history.ingest('synthetic-owner-2', fixture), {
+    stored: fixture.records.length,
+    duplicate: 0,
+  });
+  assert.deepEqual(await recovered.ingest(owner, fixture), {
+    stored: 0,
+    duplicate: fixture.records.length,
+  });
+
+  assert.equal(pool.rows.size, fixture.records.length * 2);
+  assert.equal(objects.objects.size, fixture.records.length * 2);
+  assert.notDeepEqual(
+    first.map(({ id, key }) => ({ id, key })),
+    otherOwner.map(({ id, key }) => ({ id, key })),
+  );
+  const roundTrip = await Promise.all(
+    first.map(({ id }) => recovered.fetch(owner, id)),
+  );
+  const otherRoundTrip = await Promise.all(
+    otherOwner.map(({ id }) =>
+      recovered.fetch('synthetic-owner-2', id),
+    ),
+  );
+  await assert.rejects(
+    recovered.fetch('synthetic-owner-2', first[0]!.id),
+    { status: 404 },
+  );
+  assert.deepEqual(
+    roundTrip.map(({ record }) => record),
+    fixture.records.map(({ record }) => record),
+  );
+  assert.deepEqual(
+    otherRoundTrip.map(({ record }) => record),
+    fixture.records.map(({ record }) => record),
+  );
+  const usageEvents = roundTrip
+    .map(({ record }) =>
+      record as {
+        event_type: string;
+        usage: {
+          report_semantics: string;
+          receipt_id: string | null;
+          coverage: string;
+        };
+      },
+    )
+    .filter((record) => record.event_type === 'model.call');
+  assert.equal(usageEvents[0]?.usage.receipt_id, 'receipt-001');
+  assert.deepEqual(
+    usageEvents
+      .map(({ usage }) => ({
+        report_semantics: usage.report_semantics,
+        receipt_id: usage.receipt_id,
+        coverage: usage.coverage,
+      })),
+    [
+      {
+        report_semantics: 'provider-reported',
+        receipt_id: 'receipt-001',
+        coverage: 'reported',
+      },
+      {
+        report_semantics: 'redacted-by-source',
+        receipt_id: 'receipt-002',
+        coverage: 'redacted',
+      },
+    ],
+  );
+  assert.deepEqual(
+    roundTrip.find(({ record }) => record.event_type === 'usage.observation')
+      ?.record,
+    fixture.records.find(({ record }) => record.event_type === 'usage.observation')
+      ?.record,
+  );
 });
 
 test('failed immutable object write leaves ingest retryable', async () => {

@@ -101,15 +101,8 @@ function normalizeValidEndpoint(value: unknown): string | null {
   const milliseconds = Date.parse(parseValue);
   if (Number.isNaN(milliseconds))
     throw new HistoryError(400, 'valid_time endpoint is not a real timestamp');
-  const micros = Number(fraction.slice(3).padEnd(3, '0') || '0');
-  const totalMicros = BigInt(milliseconds) * 1000n + BigInt(micros);
-  const seconds =
-    totalMicros >= 0n
-      ? totalMicros / 1_000_000n
-      : (totalMicros - 999_999n) / 1_000_000n;
-  const remainder = totalMicros - seconds * 1_000_000n;
-  const utc = new Date(Number(seconds) * 1000).toISOString().replace(/\.\d{3}Z$/u, '');
-  return `${utc}.${String(remainder).padStart(6, '0')}Z`;
+  const utc = new Date(milliseconds).toISOString();
+  return `${utc.slice(0, -1)}${fraction.slice(3).padEnd(3, '0')}Z`;
 }
 
 function normalizeValidTime(item: Partial<InputRecord>) {

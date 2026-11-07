@@ -8,12 +8,122 @@ import sys
 import tempfile
 import threading
 import unittest
+from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import collector
+
+
+class FakeCursor:
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class FakeSQLite:
+    def __init__(self, receipt_coverage=True):
+        self.columns = {
+            "url",
+            "source",
+            "thread",
+            "mode",
+            "size",
+            "mtime",
+            "offset",
+            "digest",
+        }
+        if receipt_coverage:
+            self.columns.add("receipt_coverage")
+        self.progress = {}
+        self.occurrences = {}
+        self.receipts = {}
+        self.statements = []
+        self.events = []
+        self.operations = []
+        self.active = False
+        self.snapshot = None
+
+    def __enter__(self):
+        self.active = True
+        self.snapshot = deepcopy(
+            (self.progress, self.occurrences, self.receipts)
+        )
+        self.events.append("begin")
+        return self
+
+    def __exit__(self, error_type, _error, _traceback):
+        self.active = False
+        if error_type is not None:
+            self.progress, self.occurrences, self.receipts = self.snapshot
+            self.events.append("rollback")
+        else:
+            self.events.append("commit")
+        return False
+
+    def execute(self, statement, values=()):
+        sql = " ".join(statement.split())
+        values = tuple(values)
+        self.statements.append(sql)
+        if sql == "PRAGMA table_info(progress)":
+            return FakeCursor(
+                [(index, name) for index, name in enumerate(sorted(self.columns))]
+            )
+        if sql.startswith("ALTER TABLE progress ADD COLUMN receipt_coverage"):
+            self.columns.add("receipt_coverage")
+            return FakeCursor()
+        if sql.startswith("SELECT receipt_coverage FROM progress"):
+            row = self.progress.get(values)
+            return FakeCursor([(row["receipt_coverage"],)] if row else [])
+        if sql.startswith("INSERT OR REPLACE INTO progress"):
+            key = values[:4]
+            self.progress[key] = {
+                "size": values[4],
+                "mtime": values[5],
+                "offset": values[6],
+                "digest": values[7],
+                "receipt_coverage": values[8],
+            }
+            self.operations.append(("progress", self.active))
+            return FakeCursor()
+        if sql.startswith("SELECT archive_id FROM archive_receipt"):
+            archive_id = self.receipts.get(values)
+            return FakeCursor([(archive_id,)] if archive_id else [])
+        if sql.startswith("SELECT source_id,revision_id,archive_id FROM archive_receipt"):
+            rows = [
+                (source_id, revision_id, archive_id)
+                for (url, source, thread, source_id, revision_id), archive_id
+                in self.receipts.items()
+                if (url, source, thread) == values
+            ]
+            return FakeCursor(sorted(rows))
+        if sql.startswith("INSERT OR IGNORE INTO archive_receipt"):
+            self.receipts.setdefault(values[:5], values[5])
+            self.operations.append(("receipt", self.active))
+            return FakeCursor()
+        if sql.startswith("DELETE FROM occurrence"):
+            for key in list(self.occurrences):
+                if key[:4] == values:
+                    del self.occurrences[key]
+            return FakeCursor()
+        return FakeCursor()
+
+    def executemany(self, statement, rows):
+        sql = " ".join(statement.split())
+        self.statements.append(sql)
+        for values in rows:
+            self.occurrences[tuple(values[:6])] = values[6]
+        self.operations.append(("occurrence", self.active))
+
+    def commit(self):
+        self.events.append("commit")
 
 
 class CollectorTests(unittest.TestCase):
@@ -651,6 +761,74 @@ class CollectorTests(unittest.TestCase):
                     {"stored": 1, "duplicate": 0, "records": [invalid]},
                     [record],
                 )
+
+    def test_state_writes_receipt_and_checkpoint_atomically_and_rolls_back_conflicts(self):
+        db = FakeSQLite()
+        state = collector.State.__new__(collector.State)
+        state.db = db
+        receipt = {
+            "id": "a" * 64,
+            "revision_id": "b" * 64,
+            "archive_id": "c" * 64,
+        }
+
+        state.set_progress(
+            "scoped-url",
+            "source",
+            "thread",
+            "normal",
+            10,
+            20,
+            10,
+            "d" * 64,
+            {},
+            set(),
+            reset=True,
+            receipts=[receipt],
+            receipt_coverage="complete",
+        )
+
+        key = ("scoped-url", "source", "thread", "normal")
+        self.assertEqual(db.events, ["begin", "commit"])
+        self.assertEqual(
+            db.operations,
+            [("occurrence", True), ("progress", True), ("receipt", True)],
+        )
+        self.assertEqual(db.progress[key]["receipt_coverage"], "complete")
+        self.assertEqual(state.archive_receipts(*key[:3]), [receipt])
+        self.assertEqual(state.receipt_coverage(*key), "complete")
+
+        with self.assertRaisesRegex(ValueError, "archive receipt identity changed"):
+            state.set_progress(
+                "scoped-url",
+                "source",
+                "thread",
+                "normal",
+                11,
+                21,
+                11,
+                "e" * 64,
+                {},
+                set(),
+                receipts=[{**receipt, "archive_id": "f" * 64}],
+                receipt_coverage="complete",
+            )
+        self.assertEqual(db.events, ["begin", "commit", "begin", "rollback"])
+        self.assertEqual(db.progress[key]["offset"], 10)
+        self.assertEqual(state.archive_receipts(*key[:3]), [receipt])
+
+    def test_old_checkpoint_schema_adds_explicit_unknown_receipt_coverage(self):
+        db = FakeSQLite(receipt_coverage=False)
+        with (
+            mock.patch.object(collector.sqlite3, "connect", return_value=db),
+            mock.patch.object(collector.os, "chmod"),
+        ):
+            collector.State(self.state)
+        self.assertIn("receipt_coverage", db.columns)
+        self.assertIn(
+            "ALTER TABLE progress ADD COLUMN receipt_coverage TEXT NOT NULL DEFAULT 'unknown'",
+            db.statements,
+        )
 
     def test_limit_threads_must_be_positive(self):
         with self.assertRaises(ValueError):

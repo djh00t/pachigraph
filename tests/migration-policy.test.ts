@@ -74,10 +74,17 @@ function hasRoleCommand(sql: string, procedural = false): boolean {
   );
   let boundary = true;
   let firstWord = '';
-  for (const [index, token] of tokens.entries()) {
-    const word = token.toLowerCase();
+  for (let index = 0; index < tokens.length; index++) {
+    const word = tokens[index].toLowerCase();
     const next = tokens[index + 1];
     if (boundary) {
+      if (
+        procedural && word === '<' && next === '<' &&
+        tokens[index + 3] === '>' && tokens[index + 4] === '>'
+      ) {
+        index += 4;
+        continue;
+      }
       firstWord = word;
       if (word === 'set' && roleCommand.test(tokens.slice(index, index + 4).join(' '))) {
         return true;
@@ -89,8 +96,9 @@ function hasRoleCommand(sql: string, procedural = false): boolean {
         if (body !== undefined && hasRoleCommand(body, true)) return true;
       }
       if (procedural && word === 'execute') {
-        const command = literalText(next);
-        const after = tokens[index + 2]?.toLowerCase();
+        const parenthesized = next === '(' && tokens[index + 3] === ')';
+        const command = literalText(parenthesized ? tokens[index + 2] : next);
+        const after = tokens[index + (parenthesized ? 4 : 2)]?.toLowerCase();
         if (
           command !== undefined &&
           (after === undefined || executeClauses.has(after)) &&
@@ -183,6 +191,9 @@ for (const command of [
 
 for (const [name, sql] of [
   ['direct role assignment', "SET ROLE = 'app';"],
+  ['labeled DO block', 'DO $$ <<work>> BEGIN SET ROLE app; END work; $$;'],
+  ['labeled DO with EXECUTE', "DO $$ <<work>> BEGIN EXECUTE 'SET ROLE app'; END work; $$;"],
+  ['parenthesized EXECUTE literal', "DO $$ BEGIN EXECUTE ('SET ROLE app'); END $$;"],
   ['tagged EXECUTE string', "DO $do$ BEGIN EXECUTE $$SET ROLE = 'app'$$; END $do$;"],
   ['escaped EXECUTE string', String.raw`DO $$ BEGIN EXECUTE E'SET ROLE = \'app\''; END $$;`],
   ['commented boundary', 'DO $$ BEGIN /* note */ SET ROLE app; END $$;'],
@@ -201,6 +212,8 @@ for (const [name, sql] of [
   ['DO with a notice', "DO $$ BEGIN RAISE NOTICE 'before; SET ROLE app'; END $$;"],
   ['EXECUTE with role text as data', "DO $do$ BEGIN EXECUTE $$UPDATE pachigraph.members SET role = 'before; SET ROLE app'$$; END $do$;"],
   ['computed EXECUTE text', "DO $$ BEGIN EXECUTE 'SET ROLE app' || role_suffix; END $$;"],
+  ['parenthesized computed EXECUTE', "DO $$ BEGIN EXECUTE ('SET ROLE app' || role_suffix); END $$;"],
+  ['computed EXECUTE with parenthesized operand', "DO $$ BEGIN EXECUTE ('SET ROLE app') || role_suffix; END $$;"],
   ['procedural keyword as table name', "DO $$ BEGIN UPDATE loop SET role = 'owner'; END $$;"],
 ]) {
   test(`migration policy allows ${name}`, () => {

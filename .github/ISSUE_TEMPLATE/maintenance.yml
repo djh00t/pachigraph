@@ -8,7 +8,7 @@ body:
   - type: textarea
     id: summary
     attributes:
-      label: Summary
+      label: Pachigraph issue summary
       description: "Explain why the work is needed and identify the affected files or subsystem."
       placeholder: "Document the migration lint command beside the migration instructions."
     validations:

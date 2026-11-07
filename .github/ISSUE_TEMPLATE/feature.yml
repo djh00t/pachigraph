@@ -8,7 +8,7 @@ body:
   - type: textarea
     id: summary
     attributes:
-      label: Summary
+      label: Pachigraph issue summary
       description: "Describe who benefits, the intended outcome, and what is in scope."
       placeholder: "An operator can locate a retained trace by its stable identifier."
     validations:

@@ -8,7 +8,7 @@ body:
   - type: textarea
     id: summary
     attributes:
-      label: Summary
+      label: Pachigraph issue summary
       description: "Describe actual and expected behaviour and how to reproduce the problem."
       placeholder: "Opening a retained trace should show its latest authorised revision."
     validations:

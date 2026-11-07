@@ -219,13 +219,14 @@ export function createHistory(
     async fetch(owner: string, id: string) {
       const result = await pool.query<{
         id: string;
+        revision_id: string;
         thread_id: string;
         source_id: string;
         source_timestamp: string;
         source_text: string;
         object_key: string;
       }>(
-        `SELECT id, thread_id, source_id, source_timestamp, source_text, object_key
+        `SELECT id, revision_id, thread_id, source_id, source_timestamp, source_text, object_key
          FROM pachigraph.history_records r
          WHERE owner_id = $1 AND id = $2
            AND NOT EXISTS (
@@ -238,9 +239,10 @@ export function createHistory(
       if (!row) throw new HistoryError(404, 'history record not found');
       const object = await objects.getText(row.object_key);
       if (object === null)
-        throw new HistoryError(404, 'history record body not found');
+        throw new HistoryError(503, 'history record body unavailable');
       return {
         id: row.id,
+        revision_id: row.revision_id,
         thread_id: row.thread_id,
         timestamp: row.source_timestamp,
         text: row.source_text,

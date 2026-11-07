@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
+import { handleAPI } from '../server/http.ts';
 import {
   createHistory,
   prepareHistoryRecords,
@@ -48,6 +49,7 @@ type HistoryRow = {
 class MemoryPool {
   readonly rows = new Map<string, HistoryRow>();
   readonly tombstones = new Set<string>();
+  failNextQuery = false;
 
   async connect() {
     return {
@@ -58,6 +60,10 @@ class MemoryPool {
   }
 
   async query<T>(statement: string, values: unknown[] = []) {
+    if (this.failNextQuery) {
+      this.failNextQuery = false;
+      throw new Error('injected database read failure');
+    }
     if (!statement.includes('FROM pachigraph.history_records r'))
       throw new Error(`Unexpected memory-pool query: ${statement}`);
     const ownerId = String(values[0]);
@@ -116,6 +122,7 @@ class MemoryPool {
 class MemoryObjects {
   readonly objects = new Map<string, string>();
   failNextPut = false;
+  failNextGet = false;
 
   async putImmutable(key: string, value: string) {
     if (this.failNextPut) {
@@ -126,6 +133,10 @@ class MemoryObjects {
   }
 
   async getText(key: string) {
+    if (this.failNextGet) {
+      this.failNextGet = false;
+      throw new Error('injected object read failure');
+    }
     return this.objects.get(key) ?? null;
   }
 
@@ -168,10 +179,73 @@ test('history ingest, replay, and fetch use the in-memory storage boundaries', a
   assert.ok(expected);
   const fetched = await history.fetch(owner, expected.id);
   assert.equal(fetched.id, expected.id);
+  assert.equal(fetched.revision_id, expected.revision_id);
   assert.equal(fetched.timestamp, first.timestamp);
   assert.equal(fetched.text, first.text);
   assert.deepEqual(fetched.record, first.record);
   assert.match(fetched.citation, new RegExp(`\\?id=${expected.id}`));
+  const exactResponse = await handleAPI(
+    new Request(`https://history.example/api/fetch?id=${expected.id}`),
+    owner,
+    history,
+  );
+  assert.equal(exactResponse.status, 200);
+  assert.equal(
+    (await exactResponse.json() as { revision_id: string }).revision_id,
+    expected.revision_id,
+  );
+});
+
+test('exact fetch reports an indexed record with a missing object as unavailable', async () => {
+  const { pool, objects, history } = setup();
+  await history.ingest(owner, fixture);
+  const row = [...pool.rows.values()][0];
+  assert.ok(row);
+  objects.objects.delete(row.object_key);
+
+  const response = await handleAPI(
+    new Request(`https://history.example/api/fetch?id=${row.id}`),
+    owner,
+    history,
+  );
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'Temporarily unavailable' });
+});
+
+test('exact fetch keeps absent and denied records at 404 while backend failures map to 503', async () => {
+  const { pool, objects, history } = setup();
+  await history.ingest(owner, fixture);
+  const row = [...pool.rows.values()][0];
+  assert.ok(row);
+  const denied = await handleAPI(
+    new Request(`https://history.example/api/fetch?id=${row.id}`),
+    'different-owner',
+    history,
+  );
+  assert.equal(denied.status, 404);
+  const absent = await handleAPI(
+    new Request('https://history.example/api/fetch?id=absent'),
+    owner,
+    history,
+  );
+  assert.equal(absent.status, 404);
+
+  objects.failNextGet = true;
+  const storageUnavailable = await handleAPI(
+    new Request(`https://history.example/api/fetch?id=${row.id}`),
+    owner,
+    history,
+  );
+  assert.equal(storageUnavailable.status, 503);
+
+  pool.failNextQuery = true;
+  const unavailable = await handleAPI(
+    new Request(`https://history.example/api/fetch?id=${row.id}`),
+    owner,
+    history,
+  );
+  assert.equal(unavailable.status, 503);
 });
 
 test('run replay preserves owner-scoped usage evidence', async () => {

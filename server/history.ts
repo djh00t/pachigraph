@@ -15,9 +15,38 @@ export type InputRecord = {
   record: Record<string, unknown>;
   valid_time?: { from: string | null; to: string | null };
   corrects_id?: string;
+  retracts?: boolean;
 };
 
+const MAX_AS_OF_LINEAGE = 256;
+
 export type IngestInput = { thread_id: string; records: InputRecord[] };
+
+type AsOfBase = { root_id: string; valid_at: string; recorded_at: string };
+type AsOfEvidence = {
+  id: string;
+  revision_id: string;
+  thread_id: string;
+  timestamp: string;
+  text: string;
+  record: Record<string, unknown>;
+  valid_time_status: 'unknown' | 'known';
+  valid_from: string | null;
+  valid_to: string | null;
+  recorded_from: string;
+  recorded_to: string | null;
+  corrects_id: string | null;
+  retracts: boolean;
+  citation: string;
+};
+export type AsOfResult =
+  | (AsOfBase & { status: 'lineage_limit'; limit: number })
+  | (AsOfBase & { status: 'not_known' | 'outside_validity' })
+  | (AsOfBase & { status: 'ambiguous'; candidate_ids: string[] })
+  | (AsOfBase & {
+      status: 'resolved' | 'unknown' | 'retracted';
+      record: AsOfEvidence;
+    });
 
 export class HistoryError extends Error {
   readonly status: number;
@@ -163,7 +192,17 @@ function validate(owner: string, input: unknown): asserts input is IngestInput {
     const validTime = normalizeValidTime(item);
     if (item.corrects_id !== undefined && !SHA256.test(item.corrects_id))
       throw new HistoryError(400, 'corrects_id must be an archive id');
-    const serialized = `{"id":${JSON.stringify(item.id)},"record":${canonical(item.record)},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}${validTime.status === 'known' ? `,"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}` : ''}${item.corrects_id === undefined ? '' : `,"corrects_id":${JSON.stringify(item.corrects_id)}`}}`;
+    if (item.retracts !== undefined && typeof item.retracts !== 'boolean')
+      throw new HistoryError(400, 'retracts must be a boolean');
+    if (
+      item.retracts === true &&
+      (!item.corrects_id || validTime.status !== 'known')
+    )
+      throw new HistoryError(
+        400,
+        'a retraction requires a predecessor and known valid time',
+      );
+    const serialized = `{"id":${JSON.stringify(item.id)},"record":${canonical(item.record)},"text":${JSON.stringify(item.text)},"timestamp":${JSON.stringify(item.timestamp)}${validTime.status === 'known' ? `,"valid_time":{"from":${JSON.stringify(validTime.from)},"to":${JSON.stringify(validTime.to)}}` : ''}${item.corrects_id === undefined ? '' : `,"corrects_id":${JSON.stringify(item.corrects_id)}`}${item.retracts === true ? ',"retracts":true' : ''}}`;
     if (Buffer.byteLength(serialized) > 384 * 1024) {
       throw new HistoryError(413, 'record exceeds 384 KiB');
     }
@@ -184,9 +223,11 @@ function prepareValidatedHistoryRecords(owner: string, input: IngestInput) {
       item.corrects_id === undefined
         ? revisionBody
         : `${revisionBody.slice(0, -1)},"corrects_id":${JSON.stringify(item.corrects_id)}}`;
-    const revision = digest(
-      revisionWithCorrection,
-    );
+    const revisionWithRetraction =
+      item.retracts === true
+        ? `${revisionWithCorrection.slice(0, -1)},"retracts":true}`
+        : revisionWithCorrection;
+    const revision = digest(revisionWithRetraction);
     return {
       item,
       record,
@@ -195,6 +236,7 @@ function prepareValidatedHistoryRecords(owner: string, input: IngestInput) {
       validFrom: validTime.from,
       validTo: validTime.to,
       correctsId: item.corrects_id,
+      isRetraction: item.retracts === true,
       id: digest(`${owner}\n${input.thread_id}\n${item.id}\n${revision}`),
       key: `${ownerHash}/${input.thread_id}/${item.id}/${revision}`,
     };
@@ -324,7 +366,10 @@ export function createHistory(
               ],
             );
             if (overlap.rowCount)
-              throw new HistoryError(409, 'overlapping direct corrections are ambiguous');
+              throw new HistoryError(
+                409,
+                'overlapping direct corrections are ambiguous',
+              );
           }
 
           await objects.putImmutable(record.key, record.record);
@@ -332,8 +377,9 @@ export function createHistory(
             `INSERT INTO pachigraph.history_records
                (owner_id, thread_id, source_id, revision_id, id,
                 source_timestamp, source_text, text_bytes, object_key, ingested_at,
-                valid_time_status, valid_from, valid_to, recorded_from, recorded_to, corrects_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $10::timestamptz, NULL, $14)
+                valid_time_status, valid_from, valid_to, recorded_from, recorded_to,
+                corrects_id, is_retraction)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $10::timestamptz, NULL, $14, $15)
              ON CONFLICT (owner_id, thread_id, source_id, revision_id) DO NOTHING`,
             [
               owner,
@@ -350,6 +396,7 @@ export function createHistory(
               record.validFrom,
               record.validTo,
               record.correctsId ?? null,
+              record.isRetraction,
             ],
           );
           stored += result.rowCount ?? 0;
@@ -430,6 +477,218 @@ export function createHistory(
           row.source_timestamp,
         ),
       };
+    },
+
+    async asOf(
+      owner: string,
+      rootId: string,
+      validAtInput: unknown,
+      recordedAtInput: unknown,
+    ): Promise<AsOfResult> {
+      if (!SHA256.test(rootId))
+        throw new HistoryError(400, 'root_id must be an archive id');
+      const validAt = normalizeValidEndpoint(validAtInput);
+      const recordedAt = normalizeValidEndpoint(recordedAtInput);
+      if (validAt === null || recordedAt === null)
+        throw new HistoryError(
+          400,
+          'as-of query requires valid_at and recorded_at',
+        );
+
+      const rootMetadataResult = await pool.query<{
+        thread_id: string;
+      }>(
+        `SELECT r.thread_id
+         FROM pachigraph.history_records r
+         WHERE r.owner_id = $1 AND r.id = $2
+           AND NOT EXISTS (
+             SELECT 1 FROM pachigraph.thread_tombstones
+             WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+           )`,
+        [owner, rootId],
+      );
+      const rootMetadata = rootMetadataResult.rows[0];
+      if (!rootMetadata)
+        throw new HistoryError(404, 'history record not found');
+
+      return transaction(pool, async (client) => {
+        await lockThread(client, owner, rootMetadata.thread_id);
+        const rootResult = await client.query<{
+          id: string;
+          thread_id: string;
+          corrects_id: string | null;
+        }>(
+          `SELECT r.id, r.thread_id, r.corrects_id
+           FROM pachigraph.history_records r
+           WHERE r.owner_id = $1 AND r.id = $2 AND r.thread_id = $3
+             AND NOT EXISTS (
+               SELECT 1 FROM pachigraph.thread_tombstones
+               WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             )`,
+          [owner, rootId, rootMetadata.thread_id],
+        );
+        const root = rootResult.rows[0];
+        if (!root) throw new HistoryError(404, 'history record not found');
+        if (root.corrects_id !== null)
+          throw new HistoryError(400, 'root_id must identify a lineage root');
+
+        const lineageResult = await client.query<{
+          id: string;
+          revision_id: string;
+          thread_id: string;
+          source_id: string;
+          source_timestamp: string;
+          source_text: string;
+          object_key: string;
+          valid_time_status: 'unknown' | 'known';
+          valid_from: string | null;
+          valid_to: string | null;
+          recorded_from: string;
+          recorded_to: string | null;
+          corrects_id: string | null;
+          is_retraction: boolean;
+          depth: number;
+        }>(
+          `WITH RECURSIVE as_of_lineage AS (
+           SELECT r.id, r.revision_id, r.thread_id, r.source_id,
+                  r.source_timestamp, r.source_text, r.object_key,
+                  r.valid_time_status,
+                  to_char(r.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from,
+                  to_char(r.valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to,
+                  to_char(r.recorded_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_from,
+                  to_char(r.recorded_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_to,
+                  r.corrects_id, r.is_retraction, 0 AS depth,
+                  ARRAY[r.id]::text[] AS path
+           FROM pachigraph.history_records r
+           WHERE r.owner_id = $1 AND r.thread_id = $2 AND r.id = $3
+             AND NOT EXISTS (
+               SELECT 1 FROM pachigraph.thread_tombstones
+               WHERE owner_id = r.owner_id AND thread_id = r.thread_id
+             )
+           UNION ALL
+           SELECT child.id, child.revision_id, child.thread_id, child.source_id,
+                  child.source_timestamp, child.source_text, child.object_key,
+                  child.valid_time_status,
+                  to_char(child.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from,
+                  to_char(child.valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to,
+                  to_char(child.recorded_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_from,
+                  to_char(child.recorded_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_to,
+                  child.corrects_id, child.is_retraction, parent.depth + 1,
+                  parent.path || child.id
+           FROM pachigraph.history_records child
+           JOIN as_of_lineage parent
+             ON child.owner_id = $1 AND child.thread_id = parent.thread_id
+            AND child.corrects_id = parent.id
+           WHERE child.recorded_from <= $4::timestamptz
+             AND NOT child.id = ANY(parent.path)
+         )
+         SELECT id, revision_id, thread_id, source_id, source_timestamp,
+                source_text, object_key, valid_time_status, valid_from, valid_to,
+                recorded_from, recorded_to, corrects_id, is_retraction, depth
+         FROM as_of_lineage
+         LIMIT ${MAX_AS_OF_LINEAGE + 1}`,
+          [owner, root.thread_id, rootId, recordedAt],
+        );
+        const lineage = lineageResult.rows;
+        if (lineage.length === 0)
+          throw new HistoryError(404, 'history record not found');
+        const response = {
+          root_id: rootId,
+          valid_at: validAt,
+          recorded_at: recordedAt,
+        };
+        if (lineage.length > MAX_AS_OF_LINEAGE)
+          return {
+            ...response,
+            status: 'lineage_limit',
+            limit: MAX_AS_OF_LINEAGE,
+          };
+
+        const isRecordedAt = (row: (typeof lineage)[number]) => {
+          const from = normalizeValidEndpoint(row.recorded_from)!;
+          const to =
+            row.recorded_to === null
+              ? null
+              : normalizeValidEndpoint(row.recorded_to);
+          return from <= recordedAt && (to === null || recordedAt < to);
+        };
+        const isValidAt = (row: (typeof lineage)[number]) => {
+          if (row.valid_time_status === 'unknown') return true;
+          const from =
+            row.valid_from === null
+              ? null
+              : normalizeValidEndpoint(row.valid_from);
+          const to =
+            row.valid_to === null ? null : normalizeValidEndpoint(row.valid_to);
+          return (
+            (from === null || from <= validAt) && (to === null || validAt < to)
+          );
+        };
+        const visible = lineage.filter(isRecordedAt);
+        if (visible.length === 0) return { ...response, status: 'not_known' };
+        const eligible = visible.filter(isValidAt);
+        if (eligible.length === 0)
+          return { ...response, status: 'outside_validity' };
+
+        const byId = new Map(lineage.map((row) => [row.id, row]));
+        const eligibleIds = new Set(eligible.map((row) => row.id));
+        const superseded = new Set<string>();
+        for (const row of eligible) {
+          const visited = new Set<string>();
+          let parent = row.corrects_id ? byId.get(row.corrects_id) : undefined;
+          while (parent && !visited.has(parent.id)) {
+            visited.add(parent.id);
+            if (eligibleIds.has(parent.id)) superseded.add(parent.id);
+            parent = parent.corrects_id
+              ? byId.get(parent.corrects_id)
+              : undefined;
+          }
+        }
+        const winners = eligible
+          .filter((row) => !superseded.has(row.id))
+          .sort((left, right) => left.id.localeCompare(right.id));
+        if (winners.length > 1)
+          return {
+            ...response,
+            status: 'ambiguous',
+            candidate_ids: winners.map((row) => row.id),
+          };
+        const winner = winners[0];
+        if (!winner) return { ...response, status: 'outside_validity' };
+        const object = await objects.getText(winner.object_key);
+        if (object === null)
+          throw new HistoryError(503, 'history record body unavailable');
+        return {
+          ...response,
+          status:
+            winner.valid_time_status === 'unknown'
+              ? 'unknown'
+              : winner.is_retraction
+                ? 'retracted'
+                : 'resolved',
+          record: {
+            id: winner.id,
+            revision_id: winner.revision_id,
+            thread_id: winner.thread_id,
+            timestamp: winner.source_timestamp,
+            text: winner.source_text,
+            record: JSON.parse(object) as Record<string, unknown>,
+            valid_time_status: winner.valid_time_status,
+            valid_from: winner.valid_from,
+            valid_to: winner.valid_to,
+            recorded_from: winner.recorded_from,
+            recorded_to: winner.recorded_to,
+            corrects_id: winner.corrects_id,
+            retracts: winner.is_retraction,
+            citation: citation(
+              winner.id,
+              winner.thread_id,
+              winner.source_id,
+              winner.source_timestamp,
+            ),
+          },
+        };
+      });
     },
 
     async search(owner: string, query: string) {

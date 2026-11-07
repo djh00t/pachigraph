@@ -24,7 +24,12 @@ export function createKeys(pool: Pool) {
       const path = new URL(request.url).pathname;
       const allowed =
         row.scope === 'read'
-          ? (['/api/search', '/api/fetch', '/api/status'].includes(path) &&
+          ? ([
+              '/api/search',
+              '/api/fetch',
+              '/api/as-of',
+              '/api/status',
+            ].includes(path) &&
               request.method === 'GET') ||
             (path === '/mcp' && request.method === 'POST')
           : row.scope === 'ingest' &&

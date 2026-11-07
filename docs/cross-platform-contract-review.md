@@ -1,7 +1,7 @@
 # Issue 9: source contract review
 
-Status: partial implementation; the additive archive receipt mapping and
-bitemporal correction relation are implemented. Broader source metadata remains
+Status: partial implementation; archive receipt mapping, bitemporal corrections
+and root-anchored as-of lookup are implemented. Broader source metadata remains
 a proposal.
 Baseline: `d28c67beb2d5c96c2bb7a7874cbb77b52ba78187`.
 Tracking: <https://github.com/djh00t/pachigraph/issues/9>.
@@ -44,13 +44,13 @@ utterances can be distinct events. Preserve existing Codex identity derivation.
 An ID-less legacy source requires a durable occurrence mapping; if it cannot be
 reconciled after source rewriting, stop and report a gap instead of merging events.
 
-| Field | Requirement | Reason |
-| --- | --- | --- |
-| `thread_id`, event `id` | Existing required formats | Stable archive identity and existing client compatibility |
-| `text`, `record` | Required, existing bounds and sanitation | Searchable text and immutable sanitized evidence |
-| `timestamp` | Required key; string or explicit null | Unknown original time must not be fabricated |
-| `ingested_at` output | Server-assigned, separate from source time | Archive receipt time, not claimed speech time |
-| `source` | Optional bounded metadata on new records | Native provenance without universal producer requirements |
+| Field                   | Requirement                                | Reason                                                    |
+| ----------------------- | ------------------------------------------ | --------------------------------------------------------- |
+| `thread_id`, event `id` | Existing required formats                  | Stable archive identity and existing client compatibility |
+| `text`, `record`        | Required, existing bounds and sanitation   | Searchable text and immutable sanitized evidence          |
+| `timestamp`             | Required key; string or explicit null      | Unknown original time must not be fabricated              |
+| `ingested_at` output    | Server-assigned, separate from source time | Archive receipt time, not claimed speech time             |
+| `source`                | Optional bounded metadata on new records   | Native provenance without universal producer requirements |
 
 Proposed `source` object has only optional `platform`, `conversation_id`,
 `event_id`, `coverage`, and `corrects` fields. Review proposed limits: platform
@@ -114,30 +114,47 @@ overlap. A partial correction does not edit or close the predecessor interval.
 This stores correction evidence and rejects ambiguous direct siblings; it does
 not yet define full as-of resolution across correction generations.
 
+The root-anchored `/api/as-of` query requires an archive root ID plus explicit
+`valid_at` and `recorded_at` points. Both clocks use half-open intervals. It
+traverses only same-owner, same-thread descendants recorded by the requested
+knowledge point; closed ancestors remain in the graph as structural links.
+Unknown-valid nodes are possible candidates at every valid point, but remain
+marked unknown. A known eligible descendant can resolve an unknown ancestor
+inside the descendant's interval. Eligible descendants do not inherit an
+ancestor's valid interval, so a correction can apply outside it. The query
+returns the unique maximal lineage node, explicit `unknown`, `retracted`,
+`outside_validity`, or `not_known` states, and candidate IDs for ambiguous
+branches. It does not choose a branch or synthesize a retraction. A retraction
+is an explicit `retracts: true` correction with known valid time; it is hashed
+as part of the revision and returned as the winner for its valid interval.
+The query stops at 256 lineage records and returns `lineage_limit` without a
+partial winner. It preserves the winning raw record; it does not infer whether
+that payload is a source fact, derived claim, or procedure.
+
 ## Dependency graph and bounded deliverables
 
 Each row is a separately reviewable slice of at most 15 minutes. If implementation
 cannot fit, split the row before editing further. Test/review waits are separate.
 
-| Task | Depends on | Deliverable | Completion evidence |
-| --- | --- | --- | --- |
-| P0 source/ownership inspection | none | Baseline and competing-work check | Main d28c67be; issue 9 unassigned, no comments; only open PR 8 dependency update |
-| P1 Codex/partial voice evidence | P0 | Synthetic fixture pair and pinned source evidence | Companion fixture/evidence files; never live qualification |
-| P2 Claude/Pi evidence | P0 | Synthetic fixture pair and pinned source evidence | Companion fixture/evidence files; never live qualification |
-| P3 contract review | P0, P1, P2 | This proposal with required/optional rationale | Human interface review pending |
-| I1 retained identity helper | P3 approved | Durable generated IDs and replay/checkpoint tests | Crash-before/after-ack and repeated equal-content events |
-| I2 nullable source time | P3 approved | Additive SQL migration and validation | Existing migration checksum unchanged; null accepted, malformed string rejected |
-| I3 metadata persistence | P3 approved | Bounded validation and immutable round-trip | Missing IDs, size boundaries, unknown keys, secret-in-metadata rejection/redaction and owner isolation |
-| I4 revision compatibility | I3 | Exact legacy preimage retained | Known legacy IDs/revisions and metadata revision tests |
-| I5 nullable readback | I2 | Search/fetch/UI null handling, capture output | Missing time remains null; stable sorting; existing consumers |
-| I6a archive identity acknowledgement | I4 | Additive ingest ID mapping, persisted on replay | Existing count-only consumers still work; duplicate returns identical archive IDs |
-| I6 archive citations | I3, I5, I6a | Archive-first helper and Agent Brain reference example | Fetch immutable evidence by returned ID; no invented deep link |
-| I7 fixture adapters | I1, I2, I3, I4 | Small producer-specific fixture conversions | Each producer ingests, retries, searches and fetches |
-| I8 correction/replay regression | I6, I7 | Original plus later correction replay | Two events survive; correction links original; unknown coverage retained |
-| V1 shared verification | I1-I8 | Repository local checks/build | Actual output and environment recorded |
-| R1 adversarial review | V1 | Independent findings on final diff | Review report and resolved findings |
-| R2 Codex review | V1 | Independent Codex review | Review report and resolved findings |
-| H1 feature PR | R1, R2 | Non-draft PR, no Actions execution | Head/PR/run inspection; human merge only |
+| Task                                 | Depends on     | Deliverable                                            | Completion evidence                                                                                    |
+| ------------------------------------ | -------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| P0 source/ownership inspection       | none           | Baseline and competing-work check                      | Main d28c67be; issue 9 unassigned, no comments; only open PR 8 dependency update                       |
+| P1 Codex/partial voice evidence      | P0             | Synthetic fixture pair and pinned source evidence      | Companion fixture/evidence files; never live qualification                                             |
+| P2 Claude/Pi evidence                | P0             | Synthetic fixture pair and pinned source evidence      | Companion fixture/evidence files; never live qualification                                             |
+| P3 contract review                   | P0, P1, P2     | This proposal with required/optional rationale         | Human interface review pending                                                                         |
+| I1 retained identity helper          | P3 approved    | Durable generated IDs and replay/checkpoint tests      | Crash-before/after-ack and repeated equal-content events                                               |
+| I2 nullable source time              | P3 approved    | Additive SQL migration and validation                  | Existing migration checksum unchanged; null accepted, malformed string rejected                        |
+| I3 metadata persistence              | P3 approved    | Bounded validation and immutable round-trip            | Missing IDs, size boundaries, unknown keys, secret-in-metadata rejection/redaction and owner isolation |
+| I4 revision compatibility            | I3             | Exact legacy preimage retained                         | Known legacy IDs/revisions and metadata revision tests                                                 |
+| I5 nullable readback                 | I2             | Search/fetch/UI null handling, capture output          | Missing time remains null; stable sorting; existing consumers                                          |
+| I6a archive identity acknowledgement | I4             | Additive ingest ID mapping, persisted on replay        | Existing count-only consumers still work; duplicate returns identical archive IDs                      |
+| I6 archive citations                 | I3, I5, I6a    | Archive-first helper and Agent Brain reference example | Fetch immutable evidence by returned ID; no invented deep link                                         |
+| I7 fixture adapters                  | I1, I2, I3, I4 | Small producer-specific fixture conversions            | Each producer ingests, retries, searches and fetches                                                   |
+| I8 correction/replay regression      | I6, I7         | Original plus later correction replay                  | Two events survive; correction links original; unknown coverage retained                               |
+| V1 shared verification               | I1-I8          | Repository local checks/build                          | Actual output and environment recorded                                                                 |
+| R1 adversarial review                | V1             | Independent findings on final diff                     | Review report and resolved findings                                                                    |
+| R2 Codex review                      | V1             | Independent Codex review                               | Review report and resolved findings                                                                    |
+| H1 feature PR                        | R1, R2         | Non-draft PR, no Actions execution                     | Head/PR/run inspection; human merge only                                                               |
 
 P0-P3 are independent of Flux migration epic 878. No central infrastructure paths
 are owned by this work. This checkout owns only issue-9 preparation files; the

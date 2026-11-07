@@ -2,6 +2,12 @@
 export type HistoryAPI = {
   search(owner: string, query: string): Promise<unknown>;
   fetch(owner: string, id: string): Promise<unknown>;
+  asOf(
+    owner: string,
+    rootId: string,
+    validAt: unknown,
+    recordedAt: unknown,
+  ): Promise<unknown>;
   ingest(owner: string, input: unknown): Promise<unknown>;
   deleteThread(owner: string, id: string): Promise<unknown>;
   status(owner: string): Promise<unknown>;
@@ -93,6 +99,13 @@ export function handleAPI(
         return history.search(owner, url.searchParams.get('q') ?? '');
       if (url.pathname === '/api/fetch')
         return history.fetch(owner, url.searchParams.get('id') ?? '');
+      if (url.pathname === '/api/as-of')
+        return history.asOf(
+          owner,
+          url.searchParams.get('root_id') ?? '',
+          url.searchParams.get('valid_at'),
+          url.searchParams.get('recorded_at'),
+        );
       if (url.pathname === '/api/status') return history.status(owner);
     }
     checkOrigin(request);
